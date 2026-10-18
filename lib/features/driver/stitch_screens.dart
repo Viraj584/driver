@@ -4,6 +4,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 
 import 'dart:async';
 
+import '../../core/auth/auth_gateway.dart';
+import '../../core/deliveries/delivery_repository.dart';
 import 'driver_journey_screens.dart';
 
 const _blue = Color(0xFF2563EB);
@@ -226,10 +228,20 @@ class FleetAccessUnavailableScreen extends StatelessWidget {
 }
 
 class FleetAuditDashboard extends StatefulWidget {
-  const FleetAuditDashboard({this.functions, this.onSessionExpired, super.key});
+  const FleetAuditDashboard({
+    this.functions,
+    this.onSessionExpired,
+    this.authGateway,
+    this.onSignOut,
+    this.loadEvents,
+    super.key,
+  });
 
   final FirebaseFunctions? functions;
   final VoidCallback? onSessionExpired;
+  final AuthGateway? authGateway;
+  final Future<void> Function()? onSignOut;
+  final Future<List<Map<String, dynamic>>> Function()? loadEvents;
 
   @override
   State<FleetAuditDashboard> createState() => _FleetAuditDashboardState();
@@ -246,12 +258,21 @@ class _FleetAuditDashboardState extends State<FleetAuditDashboard> {
   void initState() {
     super.initState();
     _loadAudit();
-    _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
-      if (user == null && !_expiredHandled) {
-        _expiredHandled = true;
-        widget.onSessionExpired?.call();
-      }
-    });
+    if (widget.authGateway != null) {
+      _authSubscription = widget.authGateway!.userChanges.listen((user) {
+        if (user == null && !_expiredHandled) {
+          _expiredHandled = true;
+          widget.onSessionExpired?.call();
+        }
+      });
+    } else {
+      _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
+        if (user == null && !_expiredHandled) {
+          _expiredHandled = true;
+          widget.onSessionExpired?.call();
+        }
+      });
+    }
   }
 
   @override
@@ -266,6 +287,15 @@ class _FleetAuditDashboardState extends State<FleetAuditDashboard> {
       _error = null;
     });
     try {
+      if (widget.loadEvents != null) {
+        final events = await widget.loadEvents!();
+        if (!mounted) return;
+        setState(() {
+          _events = events;
+          _loading = false;
+        });
+        return;
+      }
       final result =
           await (widget.functions ??
                   FirebaseFunctions.instanceFor(region: 'us-central1'))
@@ -302,7 +332,15 @@ class _FleetAuditDashboardState extends State<FleetAuditDashboard> {
       actions: [
         IconButton(
           tooltip: 'Sign out',
-          onPressed: () => FirebaseAuth.instance.signOut(),
+          onPressed: () {
+            if (widget.onSignOut != null) {
+              widget.onSignOut!();
+            } else if (widget.authGateway != null) {
+              widget.authGateway!.signOut();
+            } else {
+              FirebaseAuth.instance.signOut();
+            }
+          },
           icon: const Icon(Icons.logout),
         ),
       ],
@@ -366,6 +404,8 @@ class DriverDeliveryPoolPage extends StatefulWidget {
     required this.onOpenBiometricQuickUnlock,
     this.watchFirebaseSession = true,
     this.demoMode = false,
+    this.authGateway,
+    this.deliveryRepository,
     super.key,
   });
 
@@ -375,6 +415,8 @@ class DriverDeliveryPoolPage extends StatefulWidget {
   final VoidCallback onOpenBiometricQuickUnlock;
   final bool watchFirebaseSession;
   final bool demoMode;
+  final AuthGateway? authGateway;
+  final DeliveryRepository? deliveryRepository;
 
   @override
   State<DriverDeliveryPoolPage> createState() => _DriverDeliveryPoolPageState();
@@ -388,7 +430,14 @@ class _DriverDeliveryPoolPageState extends State<DriverDeliveryPoolPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.watchFirebaseSession && !widget.demoMode) {
+    if (widget.authGateway != null) {
+      _authSubscription = widget.authGateway!.userChanges.listen((user) {
+        if (user == null && !_sessionExpiredHandled) {
+          _sessionExpiredHandled = true;
+          widget.onSessionExpired();
+        }
+      });
+    } else if (widget.watchFirebaseSession && !widget.demoMode) {
       _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
         if (user == null && !_sessionExpiredHandled) {
           _sessionExpiredHandled = true;
@@ -496,6 +545,7 @@ class _DriverDeliveryPoolPageState extends State<DriverDeliveryPoolPage> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
               child: DriverDeliveryPoolScreen(
                 driverIdentity: widget.driverIdentity,
+                deliveryRepository: widget.deliveryRepository,
               ),
             ),
           ),
@@ -547,16 +597,18 @@ class RiskEngineUnavailableScreen extends StatelessWidget {
 }
 
 /// Delivery examples are explicitly marked as sample data. Acceptance is
-/// disabled because no server-side order acceptance operation exists.
+/// enabled when connected to the authorized local backend.
 class DriverDeliveryPoolScreen extends StatefulWidget {
   const DriverDeliveryPoolScreen({
     this.onPreviewDispatch,
     this.driverIdentity,
+    this.deliveryRepository,
     super.key,
   });
 
   final ValueChanged<DriverOrderSummary>? onPreviewDispatch;
   final String? driverIdentity;
+  final DeliveryRepository? deliveryRepository;
 
   @override
   State<DriverDeliveryPoolScreen> createState() =>
@@ -566,6 +618,28 @@ class DriverDeliveryPoolScreen extends StatefulWidget {
 class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
   String _filter = 'All';
   int _selected = 0;
+  List<DriverOrderSummary> _ordersList = _orders;
+  bool _accepting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.deliveryRepository != null) {
+      _loadDeliveries();
+    }
+  }
+
+  Future<void> _loadDeliveries() async {
+    try {
+      final list = await widget.deliveryRepository!.getDeliveries();
+      if (list.isNotEmpty && mounted) {
+        setState(() {
+          _ordersList = list;
+          if (_selected >= _ordersList.length) _selected = 0;
+        });
+      }
+    } catch (_) {}
+  }
 
   static const _orders = <DriverOrderSummary>[
     DriverOrderSummary(
@@ -619,7 +693,9 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final order = _orders[_selected];
+    final order = _ordersList.isNotEmpty
+        ? _ordersList[_selected.clamp(0, _ordersList.length - 1)]
+        : _orders[0];
     return Container(
       key: const Key('delivery-pool'),
       margin: const EdgeInsets.only(top: 18),
@@ -684,10 +760,11 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
                     selected: _filter == filter,
                     onSelected: (_) => setState(() {
                       _filter = filter;
-                      if (!_matchesFilter(_orders[_selected], filter)) {
-                        _selected = _orders.indexWhere(
+                      if (!_matchesFilter(_ordersList[_selected], filter)) {
+                        _selected = _ordersList.indexWhere(
                           (order) => _matchesFilter(order, filter),
                         );
+                        if (_selected == -1) _selected = 0;
                       }
                     }),
                   ),
@@ -695,7 +772,7 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
                 .toList(),
           ),
           const SizedBox(height: 8),
-          ..._orders
+          ..._ordersList
               .asMap()
               .entries
               .where((entry) => _matchesFilter(entry.value, _filter))
@@ -741,32 +818,87 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          Semantics(
-            button: true,
-            enabled: false,
-            label: 'Slide to confirm acceptance, unavailable until server authorization is implemented',
-            child: IgnorePointer(
-              child: Opacity(
-                opacity: 0.5,
-                child: Container(
-                  height: 48,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: _deepBlue,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'SLIDE TO ACCEPT · UNAVAILABLE',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+          if (widget.deliveryRepository != null) ...[
+            FilledButton(
+              key: const Key('accept-delivery-button'),
+              onPressed: _accepting
+                  ? null
+                  : () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      setState(() => _accepting = true);
+                      try {
+                        await widget.deliveryRepository!.acceptDelivery(order.id);
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Accepted order ${order.id}!'),
+                              backgroundColor: _green,
+                            ),
+                          );
+                          _loadDeliveries();
+                        }
+                      } catch (err) {
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Acceptance failed: $err'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) setState(() => _accepting = false);
+                      }
+                    },
+              style: FilledButton.styleFrom(
+                backgroundColor: _deepBlue,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: _accepting
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'ACCEPT DELIVERY (SERVER AUTHORIZED)',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+            ),
+          ] else ...[
+            Semantics(
+              button: true,
+              enabled: false,
+              label:
+                  'Slide to confirm acceptance, unavailable until server authorization is implemented',
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.5,
+                  child: Container(
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: _deepBlue,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'SLIDE TO ACCEPT · UNAVAILABLE',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
           const SizedBox(height: 8),
           OutlinedButton.icon(
             key: const Key('preview-dispatch-verification'),

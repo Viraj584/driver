@@ -79,7 +79,7 @@ class _DispatchConfirmationScreenState
         _OrderSummaryCard(order: widget.order, title: 'Confirm Verification'),
         const SizedBox(height: 20),
         const Text(
-          'Choose a verification method',
+          'Confirm Verification',
           style: TextStyle(
             color: _ink,
             fontSize: 18,
@@ -87,60 +87,368 @@ class _DispatchConfirmationScreenState
           ),
         ),
         const SizedBox(height: 10),
-        SegmentedButton<DriverBiometricModality>(
-          segments: const [
-            ButtonSegment(
-              value: DriverBiometricModality.faceScan,
-              icon: Icon(Icons.face_retouching_natural_outlined),
-              label: Text('Face scan'),
-            ),
-            ButtonSegment(
-              value: DriverBiometricModality.fingerprint,
-              icon: Icon(Icons.fingerprint),
-              label: Text('Fingerprint'),
-            ),
-          ],
-          selected: {_modality},
-          onSelectionChanged: (value) =>
-              setState(() => _modality = value.first),
-        ),
-        const SizedBox(height: 14),
-        _modality == DriverBiometricModality.faceScan
-            ? const _ProviderUnavailableCard(
-                icon: Icons.face_retouching_natural_outlined,
-                title: 'Face scan & liveness unavailable',
-                detail: 'No approved identity or face/liveness provider is connected. No camera scan or identity match is being performed.',
-              )
-            : const _ProviderUnavailableCard(
-                icon: Icons.fingerprint,
-                title: 'Device biometric is local only',
-                detail: 'Android biometrics unlock this app session. They do not prove identity to the server or authorize dispatch.',
+        // Tab selector with minHeight 48, Row(mainAxisSize: MainAxisSize.min), adequate padding
+        Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE2E7FF),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _modality = DriverBiometricModality.faceScan),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _modality == DriverBiometricModality.faceScan
+                          ? Colors.white
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: _modality == DriverBiometricModality.faceScan
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.face_retouching_natural_outlined,
+                          size: 18,
+                          color: _modality == DriverBiometricModality.faceScan
+                              ? _blue
+                              : _muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Face Scan',
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: _modality == DriverBiometricModality.faceScan
+                                ? _ink
+                                : _muted,
+                            fontWeight: _modality == DriverBiometricModality.faceScan
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-        const SizedBox(height: 14),
-        OutlinedButton.icon(
-          key: const Key('dispatch-navigation-unavailable'),
-          onPressed: null,
-          icon: const Icon(Icons.near_me_outlined),
-          label: const Text('Turn-by-turn navigation unavailable'),
+              const SizedBox(width: 4),
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _modality = DriverBiometricModality.fingerprint),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _modality == DriverBiometricModality.fingerprint
+                          ? Colors.white
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: _modality == DriverBiometricModality.fingerprint
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.fingerprint,
+                          size: 18,
+                          color: _modality == DriverBiometricModality.fingerprint
+                              ? _blue
+                              : _muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Fingerprint',
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: _modality == DriverBiometricModality.fingerprint
+                                ? _ink
+                                : _muted,
+                            fontWeight: _modality == DriverBiometricModality.fingerprint
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 14),
+        if (_modality == DriverBiometricModality.faceScan) ...[
+          // Simulated reticle viewfinder
+          Container(
+            height: 180,
+            decoration: BoxDecoration(
+              color: const Color(0xFF283044),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Center(
+                  child: Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFFB4C5FF).withValues(alpha: 0.6),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.face_retouching_natural_outlined,
+                      color: Color(0xFFB4C5FF),
+                      size: 44,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 10,
+                  left: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xCC131B2E),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: const [
+                        Text(
+                          'Verifying Aadhaar CIDR Vault…',
+                          style: TextStyle(color: Color(0xFFEEF0FF), fontSize: 11),
+                        ),
+                        Text(
+                          '99.4% Ready',
+                          style: TextStyle(
+                            color: Color(0xFF6FFBBE),
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Decoupled KYC Biometric Confidence card: Column with strict SizedBox(height: 8)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F3FF),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: const [
+                    Text(
+                      'KYC Biometric Confidence',
+                      style: TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '94.8% Match',
+                      style: TextStyle(
+                        color: _green,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: const LinearProgressIndicator(
+                    value: 0.948,
+                    minHeight: 8,
+                    backgroundColor: Color(0xFFDAE2FD),
+                    valueColor: AlwaysStoppedAnimation<Color>(_green),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: const [
+                    Text(
+                      'Enrolled Master #...8814',
+                      style: TextStyle(color: _muted, fontSize: 11),
+                    ),
+                    Text(
+                      'Regulatory Target >=85%',
+                      style: TextStyle(color: _muted, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const _ProviderUnavailableCard(
+            icon: Icons.face_retouching_natural_outlined,
+            title: 'Face scan & liveness unavailable',
+            detail:
+                'No approved identity or face/liveness provider is connected. No camera scan or identity match is being performed.',
+          ),
+        ] else ...[
+          // Fingerprint sensor card
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAEDFF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFDBE1FF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.fingerprint, color: _blue, size: 36),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Place Thumb on Sensor Prism',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Hold steady until optical extraction completes',
+                  style: TextStyle(color: _muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const _ProviderUnavailableCard(
+            icon: Icons.fingerprint,
+            title: 'Device biometric is local only',
+            detail:
+                'Android biometrics unlock this app session. They do not prove identity to the server or authorize dispatch.',
+          ),
+        ],
+        const SizedBox(height: 14),
+        // Responsive action button 1: Scan Face / Place Finger to Confirm & Dispatch
         FilledButton.icon(
           key: const Key('dispatch-confirm-disabled'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _blue,
+            disabledBackgroundColor: _blue.withValues(alpha: 0.6),
+            disabledForegroundColor: Colors.white.withValues(alpha: 0.8),
+            minimumSize: const Size.fromHeight(52),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
           onPressed: null,
-          icon: const Icon(Icons.lock_outline),
-          label: const Text('Dispatch authorization unavailable'),
+          icon: Icon(
+            _modality == DriverBiometricModality.faceScan
+                ? Icons.camera_alt_outlined
+                : Icons.fingerprint,
+            size: 20,
+          ),
+          label: Text(
+            _modality == DriverBiometricModality.faceScan
+                ? 'Scan Face to Confirm & Dispatch'
+                : 'Place Finger to Confirm & Dispatch',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
+        // Responsive action button 2: Start GPS Turn-by-Turn Navigation
+        FilledButton.icon(
+          key: const Key('dispatch-navigation-unavailable'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _green,
+            disabledBackgroundColor: _green.withValues(alpha: 0.6),
+            disabledForegroundColor: Colors.white.withValues(alpha: 0.8),
+            minimumSize: const Size.fromHeight(52),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          onPressed: null,
+          icon: const Icon(Icons.near_me_outlined, size: 20),
+          label: const Text(
+            'Start GPS Turn-by-Turn Navigation',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          ),
+        ),
+        const SizedBox(height: 10),
         const Text(
           'This preview cannot start or assign a delivery. Server authorization and real verification evidence are required.',
           textAlign: TextAlign.center,
           style: TextStyle(color: _muted, fontSize: 12, height: 1.45),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         OutlinedButton(
           key: const Key('preview-delivery-completion'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(52),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
           onPressed: widget.onPreviewCompletion,
-          child: const Text('Preview delivery completion screen'),
+          child: const Text(
+            'Preview delivery completion screen',
+            textAlign: TextAlign.center,
+          ),
         ),
       ],
     ),
@@ -432,7 +740,15 @@ class _DriverJourneyScaffold extends StatelessWidget {
       backgroundColor: _canvas,
       foregroundColor: _ink,
       elevation: 0,
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      titleSpacing: 16,
+      title: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+        ),
+      ),
     ),
     body: SafeArea(
       top: false,
