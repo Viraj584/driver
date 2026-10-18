@@ -146,7 +146,7 @@ void main() {
 
   testWidgets('simulator exposes a visible step-up flow', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: RiskDemoScreen()));
-    expect(find.text('DEMO DATA · LOCAL RISK ENGINE'), findsOneWidget);
+    expect(find.text('LOCAL DEMO — NOT SYNCED TO FIREBASE'), findsOneWidget);
     await tester.ensureVisible(find.text('Possible handoff'));
     await tester.tap(find.text('Possible handoff'));
     await tester.pumpAndSettle();
@@ -155,6 +155,7 @@ void main() {
     await tester.tap(find.text('Complete demo check'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Demonstration check passed'), findsOneWidget);
+    expect(find.textContaining('server score'), findsNothing);
   });
 
   testWidgets(

@@ -300,7 +300,7 @@ class _RiskDemoScreenState extends State<RiskDemoScreen> {
             child: Text(
               _serverMode
                   ? 'SERVER RISK FLOW · FIREBASE'
-                  : 'DEMO DATA · LOCAL RISK ENGINE',
+                  : 'LOCAL DEMO — NOT SYNCED TO FIREBASE',
               style: const TextStyle(fontSize: 11, letterSpacing: 1.2),
             ),
           ),

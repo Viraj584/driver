@@ -13,6 +13,9 @@ void main() {
         callableInvoker: (name, [parameters]) async {
           calls.add(name);
           if (name == 'ensureDriverProfile') return {'created': true};
+          if (name == 'getRiskEventHistory') {
+            return {'currentStatus': 'ACTIVE', 'events': []};
+          }
           return {
             'role': 'driver',
             'accountStatus': 'active',
@@ -30,7 +33,11 @@ void main() {
       );
 
       final profile = await backend.ensureAndGetProfile();
-      expect(calls, ['ensureDriverProfile', 'getDriverProfile']);
+      expect(calls, [
+        'ensureDriverProfile',
+        'getDriverProfile',
+        'getRiskEventHistory',
+      ]);
       expect(profile.accountStatus, 'active');
       expect(profile.registrationStatus, 'approved');
       expect(profile.identityVerificationStatus, 'verified');
@@ -40,6 +47,29 @@ void main() {
       expect(driverFunctionsRegion, 'us-central1');
     },
   );
+
+  test('trusted risk status is returned with the driver profile', () async {
+    final backend = FirebaseDriverBackendGateway(
+      null,
+      callableInvoker: (name, [parameters]) async => switch (name) {
+        'ensureDriverProfile' => {'created': false},
+        'getRiskEventHistory' => {
+          'currentStatus': 'LIVENESS_PENDING',
+          'events': [],
+        },
+        _ => {
+          'accountStatus': 'active',
+          'registrationStatus': 'approved',
+          'identityVerificationStatus': 'verified',
+          'requiredDocumentsStatus': 'verified',
+          'trainingStatus': 'complete',
+          'deviceEnrollmentStatus': 'enrolled',
+        },
+      },
+    );
+    final profile = await backend.ensureAndGetProfile();
+    expect(profile.riskStatus, 'LIVENESS_PENDING');
+  });
 
   test(
     'external profile status API supplies document and training gates',
@@ -77,14 +107,16 @@ void main() {
         null,
         callableInvoker: (name, [parameters]) async {
           calls.add(name);
-          return name == 'ensureDriverProfile'
-              ? {'created': true}
-              : {
-                  'accountStatus': 'active',
-                  'registrationStatus': 'registration_pending',
-                  'identityVerificationStatus': 'identity_pending',
-                  'deviceEnrollmentStatus': 'pending_review',
-                };
+          if (name == 'ensureDriverProfile') return {'created': true};
+          if (name == 'getRiskEventHistory') {
+            return {'currentStatus': 'ACTIVE', 'events': []};
+          }
+          return {
+            'accountStatus': 'active',
+            'registrationStatus': 'registration_pending',
+            'identityVerificationStatus': 'identity_pending',
+            'deviceEnrollmentStatus': 'pending_review',
+          };
         },
         profileStatusProvider: _FakeDriverProfileStatusProvider(
           const DriverProfileSummary(
@@ -99,7 +131,11 @@ void main() {
       );
 
       final profile = await backend.ensureAndGetProfile();
-      expect(calls, ['ensureDriverProfile', 'getDriverProfile']);
+      expect(calls, [
+        'ensureDriverProfile',
+        'getDriverProfile',
+        'getRiskEventHistory',
+      ]);
       expect(profile.registrationStatus, 'approved');
       expect(profile.requiredDocumentsStatus, 'verified');
       expect(profile.trainingStatus, 'complete');

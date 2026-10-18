@@ -21,6 +21,15 @@ class AccountAccessGate extends StatefulWidget {
     this.initializationError,
     this.beforeSignOut,
     this.startInSignUp = false,
+    this.onDriverAccessGranted,
+    this.adminAccess = false,
+    this.onAdminAccessGranted,
+    this.verifyAdminAccess,
+    this.googleSignInAvailable,
+    this.onPortalSelected,
+    this.onRiskEngineSelected,
+    this.demoMode = false,
+    this.onDemoAccessGranted,
     super.key,
   });
 
@@ -31,6 +40,18 @@ class AccountAccessGate extends StatefulWidget {
   final String? initializationError;
   final Future<void> Function()? beforeSignOut;
   final bool startInSignUp;
+
+  /// Called only after Firebase identity and the trusted driver profile pass
+  /// every existing protected-access requirement.
+  final ValueChanged<User>? onDriverAccessGranted;
+  final bool adminAccess;
+  final ValueChanged<User>? onAdminAccessGranted;
+  final Future<void> Function(User)? verifyAdminAccess;
+  final bool? googleSignInAvailable;
+  final VoidCallback? onPortalSelected;
+  final VoidCallback? onRiskEngineSelected;
+  final bool demoMode;
+  final VoidCallback? onDemoAccessGranted;
 
   @override
   State<AccountAccessGate> createState() => _AccountAccessGateState();
@@ -57,6 +78,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
   String _documentsStatus = 'unknown';
   String _trainingStatus = 'unknown';
   String _deviceStatus = 'unknown';
+  String _riskStatus = 'UNKNOWN';
   String _reviewReason = '';
   bool _isSignUp = false;
   final _phone = TextEditingController();
@@ -68,22 +90,33 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
   Timer? _smsTimeoutTimer;
   Timer? _resendCooldownTimer;
   int _resendCooldownSeconds = 0;
+  String? _redirectedDriverUid;
+  bool _adminCheckInFlight = false;
+  bool _adminVerified = false;
+  String? _adminFailure;
 
   @override
   void initState() {
     super.initState();
     _isSignUp = widget.startInSignUp;
-    _auth =
-        widget.auth ??
-        (widget.firebaseConfigured
-            ? FirebaseAuthGateway(FirebaseAuth.instance)
-            : null);
-    _backend = widget.backend;
+    _auth = widget.demoMode
+        ? null
+        : widget.auth ??
+              (widget.firebaseConfigured
+                  ? FirebaseAuthGateway(FirebaseAuth.instance)
+                  : null);
+    _backend = widget.demoMode ? null : widget.backend;
     if (_auth != null) {
       _user = _auth.currentUser;
       _observedUserUid = _user?.uid;
       _subscription = _auth.userChanges.listen(_onUserChanged);
-      if (_user != null) unawaited(_bootstrapProfile(_user!));
+      if (_user != null) {
+        if (widget.adminAccess) {
+          unawaited(_verifyAdmin(_user!));
+        } else {
+          unawaited(_bootstrapProfile(_user!));
+        }
+      }
     }
   }
 
@@ -106,6 +139,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
     if (!mounted || identityOperation != _bootstrapOperation) return;
     setState(() {
       _user = user;
+      _redirectedDriverUid = null;
       _verificationId = null;
       _smsCode.clear();
       _smsTimeoutTimer?.cancel();
@@ -120,10 +154,62 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       _documentsStatus = 'unknown';
       _trainingStatus = 'unknown';
       _deviceStatus = 'unknown';
+      _riskStatus = 'UNKNOWN';
+      _adminVerified = false;
+      _adminFailure = null;
+      _adminCheckInFlight = false;
       _reviewReason = '';
       _message = '';
     });
-    if (user != null) await _bootstrapProfile(user);
+    if (user != null) {
+      if (widget.adminAccess) {
+        await _verifyAdmin(user);
+      } else {
+        await _bootstrapProfile(user);
+      }
+    }
+  }
+
+  Future<void> _verifyAdmin(User user) async {
+    if (_adminCheckInFlight || !widget.firebaseConfigured) return;
+    _adminCheckInFlight = true;
+    if (mounted) {
+      setState(() {
+        _adminFailure = null;
+        _message = '';
+      });
+    }
+    try {
+      final verifier = widget.verifyAdminAccess;
+      if (verifier != null) {
+        await verifier(user);
+      } else {
+        await user.getIdToken(true);
+        await FirebaseFunctions.instanceFor(region: driverFunctionsRegion)
+            .httpsCallable('getFleetAuditHistory')
+            .call();
+      }
+      if (!mounted || _user?.uid != user.uid) return;
+      setState(() => _adminVerified = true);
+      widget.onAdminAccessGranted?.call(user);
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted && _user?.uid == user.uid) {
+        setState(() {
+          _adminFailure = error.code == 'permission-denied'
+              ? 'This account is not authorized for Fleet Command.'
+              : 'Fleet authorization could not be confirmed. Retry when the service is available.';
+        });
+      }
+    } catch (_) {
+      if (mounted && _user?.uid == user.uid) {
+        setState(
+          () => _adminFailure = 'Fleet authorization could not be confirmed. Retry when the service is available.',
+        );
+      }
+    } finally {
+      _adminCheckInFlight = false;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _bootstrapProfile(User user) async {
@@ -164,6 +250,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
           _documentsStatus = profile.requiredDocumentsStatus;
           _trainingStatus = profile.trainingStatus;
           _deviceStatus = profile.deviceEnrollmentStatus;
+          _riskStatus = profile.riskStatus;
           _reviewReason =
               profile.registrationStatusReason ??
               profile.identityVerificationStatusReason ??
@@ -172,6 +259,10 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
               '';
           _bootstrapped = true;
         });
+        if (_driverEligible && _redirectedDriverUid != user.uid) {
+          _redirectedDriverUid = user.uid;
+          widget.onDriverAccessGranted?.call(user);
+        }
       }
     } on DriverBackendException catch (error) {
       if (mounted && operationId == _bootstrapOperation) {
@@ -386,9 +477,15 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.demoMode) {
+      return DemoDriverSignInPage(
+        onContinue: widget.onDemoAccessGranted ?? () {},
+        onPortalSelected: widget.onPortalSelected,
+      );
+    }
     if (widget.initializationError != null) {
       return Scaffold(
-        backgroundColor: const Color(0xFF0B1020),
+        backgroundColor: const Color(0xFFFAF8FF),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -409,6 +506,59 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       );
     }
     if (_user != null) {
+      if (widget.adminAccess) {
+        if (_adminVerified) return widget.child;
+        return Scaffold(
+          backgroundColor: const Color(0xFFFAF8FF),
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _adminFailure == null
+                          ? Icons.admin_panel_settings_outlined
+                          : Icons.lock_outline,
+                      color: const Color(0xFF2563EB),
+                      size: 48,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _adminFailure ?? 'Verifying Fleet Command access…',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFF131B2E)),
+                    ),
+                    if (_adminFailure == null) ...[
+                      const SizedBox(height: 16),
+                      const CircularProgressIndicator(),
+                    ],
+                    if (_adminFailure != null) ...[
+                      const SizedBox(height: 16),
+                      OutlinedButton(
+                        onPressed: _busy || _adminCheckInFlight
+                            ? null
+                            : () => _verifyAdmin(_user!),
+                        child: const Text('Retry authorization'),
+                      ),
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _perform(
+                                () => _auth!.signOut(),
+                                operation: 'adminSignOut',
+                              ),
+                        child: const Text('Sign out and use another account'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
       if (_profileBootstrapFailed) {
         return _ProfileBootstrapFailureScreen(
           message: _profileBootstrapFailureMessage ?? 'We could not confirm your driver account. Your session remains locked.',
@@ -423,7 +573,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       }
       if (!_bootstrapped) {
         return Scaffold(
-          backgroundColor: const Color(0xFF0B1020),
+          backgroundColor: const Color(0xFFFAF8FF),
           body: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -439,7 +589,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       return Column(
         children: [
           Material(
-            color: const Color(0xFF141C30),
+            color: Colors.white,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Row(
@@ -464,7 +614,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
             ),
           ),
           Material(
-            color: const Color(0xFF141C30),
+            color: Colors.white,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: Row(
@@ -473,7 +623,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                     child: Text(
                       'DEVICE ENROLLMENT: ${_deviceStatus.toUpperCase()} · Approval is server controlled.',
                       style: const TextStyle(
-                        color: Colors.white60,
+                        color: Color(0xFF434655),
                         fontSize: 11,
                       ),
                     ),
@@ -517,7 +667,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
             ),
           ),
           Material(
-            color: const Color(0xFF0B1020),
+            color: Colors.white,
             child: ExpansionTile(
               title: const Text('Link another sign-in method'),
               subtitle: const Text(
@@ -628,227 +778,421 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                     documentsStatus: _documentsStatus,
                     trainingStatus: _trainingStatus,
                     deviceStatus: _deviceStatus,
+                    riskStatus: _riskStatus,
                     reviewReason: _reviewReason,
                   ),
           ),
         ],
       );
     }
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B1020),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const _ModeBanner(text: 'FIREBASE ACCOUNT SIGN-IN'),
-                const SizedBox(height: 24),
-                Text(
-                  _isSignUp ? 'Driver onboarding' : 'Driver account',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: true, label: Text('Sign Up')),
-                    ButtonSegment(value: false, label: Text('Log In')),
-                  ],
-                  selected: {_isSignUp},
-                  onSelectionChanged: _busy
-                      ? null
-                      : (selection) =>
-                            setState(() => _isSignUp = selection.first),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _isSignUp
-                      ? 'Create an account with email and password, verified phone, or a passwordless email link. Sign-in does not approve registration or device trust.'
-                      : 'Sign in with email and password, verified phone, or a passwordless email link. Account sign-in does not approve registration or device trust.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: _email,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [
-                    AutofillHints.username,
-                    AutofillHints.email,
-                  ],
-                  decoration: const InputDecoration(labelText: 'Email address'),
-                ),
-                TextField(
-                  controller: _password,
-                  obscureText: true,
-                  autofillHints: [
-                    _isSignUp
-                        ? AutofillHints.newPassword
-                        : AutofillHints.password,
-                  ],
-                  decoration: const InputDecoration(labelText: 'Password'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(() async {
-                          final gateway = _auth;
-                          if (gateway is! PasswordAuthGateway) {
-                            throw StateError(
-                              'Email/password authentication is unavailable.',
-                            );
-                          }
-                          final passwordGateway =
-                              gateway as PasswordAuthGateway;
-                          if (_isSignUp) {
-                            await passwordGateway.createEmailPasswordAccount(
-                              _email.text,
-                              _password.text,
-                            );
-                          } else {
-                            await passwordGateway.signInWithEmailPassword(
-                              _email.text,
-                              _password.text,
-                            );
-                          }
-                        }, operation: 'emailPasswordAuthentication'),
-                  child: Text(
-                    _isSignUp
-                        ? 'Create account with email'
-                        : 'Log in with email',
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed:
-                      _busy ||
-                          _auth is! GoogleAuthGateway ||
-                          const String.fromEnvironment(
-                            'GOOGLE_SERVER_CLIENT_ID',
-                          ).isEmpty
-                      ? null
-                      : () => _perform(
-                          () => (_auth as GoogleAuthGateway).signInWithGoogle(),
-                          operation: 'googleAuthentication',
+    return Theme(
+      data: ThemeData.light().copyWith(
+        scaffoldBackgroundColor: const Color(0xFFFAF8FF),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF2563EB),
+          brightness: Brightness.light,
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFAF8FF),
+        bottomNavigationBar: NavigationBar(
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFE9EEFF),
+          selectedIndex: 1,
+          onDestinationSelected: (index) {
+            if (index == 0) widget.onPortalSelected?.call();
+            if (index == 2) widget.onRiskEngineSelected?.call();
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.shield_outlined),
+              label: 'Portal',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.assignment_ind_outlined),
+              label: 'Onboarding',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.monitor_heart_outlined),
+              label: 'Risk Engine',
+            ),
+          ],
+        ),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.shield_outlined,
+                        color: Color(0xFF2563EB),
+                        size: 28,
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'TRUST JUGGLER',
+                              style: TextStyle(
+                                color: Color(0xFF131B2E),
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            Text(
+                              'Driver onboarding',
+                              style: TextStyle(
+                                color: Color(0xFF434655),
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
-                  icon: const Icon(Icons.g_mobiledata),
-                  label: Text(
-                    const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID')
-                            .isEmpty
-                        ? 'Google sign-in needs OAuth setup'
-                        : 'Continue with Google',
+                      ),
+                    ],
                   ),
-                ),
-                const Divider(height: 32, color: Colors.white24),
-                TextField(
-                  controller: _phone,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone number (+country code)',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed:
-                      _busy ||
-                          (_verificationId != null &&
-                              _resendCooldownSeconds > 0)
-                      ? null
-                      : () => _requestPhoneCode(operation: 'phoneCodeRequest'),
-                  child: Text(
-                    _busy
-                        ? 'Please wait…'
-                        : _verificationId == null
-                        ? 'Send SMS code'
-                        : _resendCooldownSeconds > 0
-                        ? 'Resend in ${_resendCooldownSeconds}s'
-                        : 'Resend SMS code',
-                  ),
-                ),
-                if (_verificationId != null) ...[
-                  TextField(
-                    controller: _smsCode,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'SMS verification code',
-                    ),
-                  ),
-                  FilledButton(
-                    onPressed: _busy
+                  const SizedBox(height: 24),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: true, label: Text('Sign Up')),
+                      ButtonSegment(value: false, label: Text('Log In')),
+                    ],
+                    selected: {_isSignUp},
+                    onSelectionChanged: _busy
                         ? null
-                        : () => _perform(
-                            () => _auth!.verifyPhoneCode(
-                              _verificationId!,
-                              normalizeSmsCode(_smsCode.text),
-                            ),
-                            operation: 'phoneCodeVerify',
+                        : (selection) =>
+                              setState(() => _isSignUp = selection.first),
+                  ),
+                  const SizedBox(height: 14),
+                  Card(
+                    color: Colors.white,
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: const BorderSide(color: Color(0xFFC3C6D7)),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.login, color: Color(0xFF2563EB)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _isSignUp
+                                      ? 'Create your driver account'
+                                      : 'Welcome back, Driver',
+                                  style: const TextStyle(
+                                    color: Color(0xFF131B2E),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                    child: const Text('Verify SMS code'),
-                  ),
-                ],
-                const Divider(height: 32, color: Colors.white24),
-                TextField(
-                  controller: _emailLinkAddress,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email for sign-in link',
-                  ),
-                ),
-                OutlinedButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _perform(() async {
-                          await _auth!.sendEmailLink(
-                            _emailLinkAddress.text.trim(),
-                          );
-                          if (mounted) {
-                            setState(() {
-                              _emailSent = true;
-                              _message = 'Sign-in link sent. Copy its full URL into the field below if this app did not open automatically.';
-                            });
-                          }
-                        }, operation: 'emailLinkRequest'),
-                  child: const Text('Send passwordless email link'),
-                ),
-                if (_emailSent) ...[
-                  TextField(
-                    controller: _emailLink,
-                    keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: 'Paste full sign-in link',
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            onPressed:
+                                _busy ||
+                                    _auth is! GoogleAuthGateway ||
+                                    !(widget.googleSignInAvailable ??
+                                        const String.fromEnvironment(
+                                          'GOOGLE_SERVER_CLIENT_ID',
+                                        ).isNotEmpty)
+                                ? null
+                                : () => _perform(
+                                    () => (_auth as GoogleAuthGateway)
+                                        .signInWithGoogle(),
+                                    operation: 'googleAuthentication',
+                                  ),
+                            icon: const Icon(Icons.g_mobiledata),
+                            label: Text(
+                              !(widget.googleSignInAvailable ??
+                                      const String.fromEnvironment(
+                                        'GOOGLE_SERVER_CLIENT_ID',
+                                      ).isNotEmpty)
+                                  ? 'Google sign-in needs OAuth setup'
+                                  : 'Continue with Google',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF131B2E),
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                const label = Text(
+                                  'or continue with mobile number',
+                                  style: TextStyle(
+                                    color: Color(0xFF434655),
+                                    fontSize: 12,
+                                  ),
+                                );
+                                if (constraints.maxWidth < 360) {
+                                  return const Center(child: label);
+                                }
+                                return const Row(
+                                  children: [
+                                    Expanded(child: Divider()),
+                                    Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
+                                      child: label,
+                                    ),
+                                    Expanded(child: Divider()),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final phoneField = TextField(
+                                controller: _phone,
+                                keyboardType: TextInputType.phone,
+                                decoration: const InputDecoration(
+                                  labelText: 'Registered Mobile Number',
+                                  hintText: '+91 98765 43210',
+                                  prefixIcon: Icon(Icons.phone_outlined),
+                                  isDense: true,
+                                  filled: true,
+                                  fillColor: Color(0xFFF2F3FF),
+                                  border: OutlineInputBorder(),
+                                ),
+                              );
+                              final getOtp = FilledButton(
+                                onPressed:
+                                    _busy ||
+                                        (_verificationId != null &&
+                                            _resendCooldownSeconds > 0)
+                                    ? null
+                                    : () => _requestPhoneCode(
+                                        operation: 'phoneCodeRequest',
+                                      ),
+                                child: Text(
+                                  _busy
+                                      ? 'Sending…'
+                                      : _verificationId == null
+                                      ? 'Get OTP'
+                                      : _resendCooldownSeconds > 0
+                                      ? 'Resend $_resendCooldownSeconds'
+                                      : 'Get OTP again',
+                                ),
+                              );
+                              if (constraints.maxWidth < 360) {
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    phoneField,
+                                    const SizedBox(height: 8),
+                                    getOtp,
+                                  ],
+                                );
+                              }
+                              return Row(
+                                children: [
+                                  Expanded(child: phoneField),
+                                  const SizedBox(width: 8),
+                                  getOtp,
+                                ],
+                              );
+                            },
+                          ),
+                          if (_verificationId != null) ...[
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _smsCode,
+                              keyboardType: TextInputType.number,
+                              maxLength: 6,
+                              decoration: InputDecoration(
+                                labelText: '6-Digit Verification Code',
+                                counterText: '',
+                                hintText: 'Enter OTP sent to SMS',
+                                prefixIcon: Icon(Icons.pin_outlined),
+                                isDense: true,
+                                filled: true,
+                                fillColor: Color(0xFFF2F3FF),
+                                border: OutlineInputBorder(),
+                                suffixIcon: TextButton(
+                                  onPressed: _busy || _resendCooldownSeconds > 0
+                                      ? null
+                                      : () => _requestPhoneCode(
+                                          operation: 'phoneCodeResend',
+                                        ),
+                                  child: Text('Resend'),
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          FilledButton.icon(
+                            key: const Key('verify-access-shift'),
+                            onPressed: _busy || _verificationId == null
+                                ? null
+                                : () => _perform(
+                                    () => _auth!.verifyPhoneCode(
+                                      _verificationId!,
+                                      normalizeSmsCode(_smsCode.text),
+                                    ),
+                                    operation: 'phoneCodeVerify',
+                                  ),
+                            icon: const Icon(Icons.verified_outlined),
+                            label: Text(
+                              _busy ? 'Verifying…' : 'Verify & Access Shift',
+                            ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(50),
+                              backgroundColor: const Color(0xFF2563EB),
+                            ),
+                          ),
+                          const Divider(height: 28),
+                          ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            title: const Text('Use email and password'),
+                            children: [
+                              TextField(
+                                controller: _email,
+                                keyboardType: TextInputType.emailAddress,
+                                autofillHints: const [
+                                  AutofillHints.username,
+                                  AutofillHints.email,
+                                ],
+                                decoration: const InputDecoration(
+                                  labelText: 'Email address',
+                                ),
+                              ),
+                              TextField(
+                                controller: _password,
+                                obscureText: true,
+                                autofillHints: [
+                                  _isSignUp
+                                      ? AutofillHints.newPassword
+                                      : AutofillHints.password,
+                                ],
+                                decoration: const InputDecoration(
+                                  labelText: 'Password',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              FilledButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _perform(
+                                        () async {
+                                          final gateway = _auth;
+                                          if (gateway is! PasswordAuthGateway) {
+                                            throw StateError(
+                                              'Email/password authentication is unavailable.',
+                                            );
+                                          }
+                                          final passwordGateway =
+                                              gateway as PasswordAuthGateway;
+                                          if (_isSignUp) {
+                                            await passwordGateway
+                                                .createEmailPasswordAccount(
+                                                  _email.text,
+                                                  _password.text,
+                                                );
+                                          } else {
+                                            await passwordGateway
+                                                .signInWithEmailPassword(
+                                                  _email.text,
+                                                  _password.text,
+                                                );
+                                          }
+                                        },
+                                        operation:
+                                            'emailPasswordAuthentication',
+                                      ),
+                                child: Text(
+                                  _isSignUp
+                                      ? 'Create account with email'
+                                      : 'Log in with email',
+                                ),
+                              ),
+                              TextField(
+                                controller: _emailLinkAddress,
+                                keyboardType: TextInputType.emailAddress,
+                                decoration: const InputDecoration(
+                                  labelText: 'Email for sign-in link',
+                                ),
+                              ),
+                              OutlinedButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _perform(() async {
+                                        await _auth!.sendEmailLink(
+                                          _emailLinkAddress.text.trim(),
+                                        );
+                                        if (mounted) {
+                                          setState(() {
+                                            _emailSent = true;
+                                            _message = 'Sign-in link sent. Copy its full URL into the field below if this app did not open automatically.';
+                                          });
+                                        }
+                                      }, operation: 'emailLinkRequest'),
+                                child: const Text(
+                                  'Send passwordless email link',
+                                ),
+                              ),
+                              if (_emailSent) ...[
+                                TextField(
+                                  controller: _emailLink,
+                                  keyboardType: TextInputType.url,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Paste full sign-in link',
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _perform(
+                                          () => _auth!.finishEmailLink(
+                                            _emailLinkAddress.text.trim(),
+                                            _emailLink.text.trim(),
+                                          ),
+                                          operation: 'emailLinkComplete',
+                                        ),
+                                  child: const Text('Complete email sign-in'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  OutlinedButton(
-                    onPressed: _busy
-                        ? null
-                        : () => _perform(
-                            () => _auth!.finishEmailLink(
-                              _emailLinkAddress.text.trim(),
-                              _emailLink.text.trim(),
-                            ),
-                            operation: 'emailLinkComplete',
-                          ),
-                    child: const Text('Complete email sign-in'),
-                  ),
-                ],
-                if (_message.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Text(
-                      _message,
-                      style: const TextStyle(color: Colors.white70),
+                  if (_message.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: Text(
+                        _message,
+                        style: const TextStyle(color: Color(0xFFBA1A1A)),
+                      ),
                     ),
-                  ),
-                if (_busy)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 16),
-                    child: LinearProgressIndicator(),
-                  ),
-              ],
+                  if (_busy)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 16),
+                      child: LinearProgressIndicator(),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -862,7 +1206,80 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       _identityStatus == 'verified' &&
       _documentsStatus == 'verified' &&
       _trainingStatus == 'complete' &&
-      _deviceStatus == 'enrolled';
+      _deviceStatus == 'enrolled' &&
+      _riskStatus == 'ACTIVE';
+}
+
+class DemoDriverSignInPage extends StatelessWidget {
+  const DemoDriverSignInPage({
+    required this.onContinue,
+    this.onPortalSelected,
+    super.key,
+  });
+
+  final VoidCallback onContinue;
+  final VoidCallback? onPortalSelected;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFFAF8FF),
+    appBar: AppBar(
+      backgroundColor: const Color(0xFFFAF8FF),
+      title: const Text('Driver sign in'),
+      leading: IconButton(
+        tooltip: 'Back to role selector',
+        onPressed: onPortalSelected,
+        icon: const Icon(Icons.arrow_back),
+      ),
+    ),
+    body: Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _ModeBanner(text: 'LOCAL DEMO — NOT SYNCED TO FIREBASE'),
+              const SizedBox(height: 24),
+              const Text(
+                'Demo driver access',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'This local session does not verify identity, send an SMS, or create a Firebase account.',
+                style: TextStyle(color: Color(0xFF434655)),
+              ),
+              const SizedBox(height: 24),
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.email_outlined),
+                title: Text('virajb2005@gmail.com'),
+                subtitle: Text('Demo display identity'),
+              ),
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.phone_outlined),
+                title: Text('9371736836'),
+                subtitle: Text('Demo display phone'),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: onContinue,
+                icon: const Icon(Icons.local_shipping_outlined),
+                label: const Text('Continue as demo driver'),
+              ),
+              TextButton(
+                onPressed: onPortalSelected,
+                child: const Text('Back to role selector'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _ProfileBootstrapFailureScreen extends StatelessWidget {
@@ -878,7 +1295,7 @@ class _ProfileBootstrapFailureScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFF0B1020),
+    backgroundColor: const Color(0xFFFAF8FF),
     body: SafeArea(
       child: Center(
         child: SingleChildScrollView(
@@ -892,7 +1309,7 @@ class _ProfileBootstrapFailureScreen extends StatelessWidget {
                 const Icon(
                   Icons.cloud_off_outlined,
                   size: 44,
-                  color: Color(0xFF42D6B5),
+                  color: Color(0xFF2563EB),
                 ),
                 const SizedBox(height: 16),
                 const Text(
@@ -904,7 +1321,7 @@ class _ProfileBootstrapFailureScreen extends StatelessWidget {
                 Text(
                   message,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, height: 1.5),
+                  style: const TextStyle(color: Color(0xFF434655), height: 1.5),
                 ),
                 const SizedBox(height: 22),
                 FilledButton.icon(
@@ -934,6 +1351,7 @@ class _OnboardingStatus extends StatelessWidget {
     required this.documentsStatus,
     required this.trainingStatus,
     required this.deviceStatus,
+    required this.riskStatus,
     required this.reviewReason,
   });
 
@@ -943,6 +1361,7 @@ class _OnboardingStatus extends StatelessWidget {
   final String documentsStatus;
   final String trainingStatus;
   final String deviceStatus;
+  final String riskStatus;
   final String reviewReason;
 
   @override
@@ -952,7 +1371,7 @@ class _OnboardingStatus extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: Card(
-          color: const Color(0xFF141C30),
+          color: Colors.white,
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -961,7 +1380,7 @@ class _OnboardingStatus extends StatelessWidget {
               children: [
                 const Icon(
                   Icons.assignment_outlined,
-                  color: Color(0xFF42D6B5),
+                  color: Color(0xFF2563EB),
                   size: 38,
                 ),
                 const SizedBox(height: 12),
@@ -974,7 +1393,7 @@ class _OnboardingStatus extends StatelessWidget {
                 const Text(
                   'Protected driver features remain locked until the backend confirms all required approvals.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, height: 1.45),
+                  style: TextStyle(color: Color(0xFF434655), height: 1.45),
                 ),
                 const SizedBox(height: 16),
                 _statusLine('Account', accountStatus),
@@ -983,25 +1402,32 @@ class _OnboardingStatus extends StatelessWidget {
                 _statusLine('Required documents', documentsStatus),
                 _statusLine('Required training', trainingStatus),
                 _statusLine('Device enrollment', deviceStatus),
+                _statusLine('Risk / step-up status', riskStatus),
                 const SizedBox(height: 12),
                 Text(
                   _nextStep,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, height: 1.45),
+                  style: const TextStyle(
+                    color: Color(0xFF434655),
+                    height: 1.45,
+                  ),
                 ),
                 if (reviewReason.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
                     'Review note: $reviewReason',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white60, height: 1.4),
+                    style: const TextStyle(
+                      color: Color(0xFF434655),
+                      height: 1.4,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 10),
                 const Text(
                   'Identity and document checks need an authorized provider or recorded manual review. Training requirements and uploaded-document storage are not configured in this prototype.',
                   style: TextStyle(
-                    color: Colors.white54,
+                    color: Color(0xFF434655),
                     fontSize: 12,
                     height: 1.4,
                   ),
@@ -1019,12 +1445,12 @@ class _OnboardingStatus extends StatelessWidget {
     child: Row(
       children: [
         Expanded(
-          child: Text(label, style: const TextStyle(color: Colors.white70)),
+          child: Text(label, style: const TextStyle(color: Color(0xFF434655))),
         ),
         Text(
           value.replaceAll('_', ' ').toUpperCase(),
           style: const TextStyle(
-            color: Color(0xFF42D6B5),
+            color: Color(0xFF2563EB),
             fontWeight: FontWeight.bold,
             fontSize: 11,
           ),
@@ -1034,6 +1460,15 @@ class _OnboardingStatus extends StatelessWidget {
   );
 
   String get _nextStep {
+    if (riskStatus == 'LIVENESS_PENDING') {
+      return 'A server risk check requires additional verification. Protected access remains locked.';
+    }
+    if (riskStatus == 'RESTRICTED') {
+      return 'This account is restricted by the server. Contact fleet support.';
+    }
+    if (riskStatus != 'ACTIVE') {
+      return 'Server risk status could not be confirmed. Protected access remains locked.';
+    }
     if (accountStatus != 'active') {
       return 'This account is not active. Contact Trust Juggler support.';
     }
@@ -1077,12 +1512,12 @@ class _ModeBanner extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(10),
-    color: const Color(0xFF141C30),
+    color: Colors.white,
     child: Text(
       text,
       textAlign: TextAlign.center,
       style: const TextStyle(
-        color: Color(0xFF42D6B5),
+        color: Color(0xFF2563EB),
         fontSize: 11,
         fontWeight: FontWeight.bold,
         letterSpacing: 1,

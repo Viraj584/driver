@@ -81,7 +81,13 @@ class FirebaseAuthGateway
       serverClientId: serverClientId,
     );
     await _googleInitialization;
-    final account = await GoogleSignIn.instance.authenticate();
+    GoogleSignInAccount account;
+    try {
+      account = await GoogleSignIn.instance.authenticate();
+    } on GoogleSignInException catch (error) {
+      if (error.code == GoogleSignInExceptionCode.canceled) return;
+      rethrow;
+    }
     final idToken = account.authentication.idToken;
     if (idToken == null || idToken.isEmpty) {
       throw StateError(

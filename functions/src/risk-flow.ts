@@ -159,6 +159,7 @@ export const getRiskEventHistory = onCall(async request => {
     .get();
   const rider = await db.collection('riders').doc(uid).get();
   return {
+    currentStatus: rider.get('status') ?? 'ACTIVE',
     events: snapshot.docs.map(document => {
       const data = document.data();
       return {

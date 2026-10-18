@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+
+import 'dart:async';
 
 import 'driver_journey_screens.dart';
 
@@ -18,6 +22,7 @@ class TrustJugglerRoleSelector extends StatefulWidget {
     required this.onOnboarding,
     required this.onFleetAccess,
     required this.onRiskEngine,
+    this.onPortal,
     super.key,
   });
 
@@ -25,6 +30,7 @@ class TrustJugglerRoleSelector extends StatefulWidget {
   final VoidCallback onOnboarding;
   final VoidCallback onFleetAccess;
   final VoidCallback onRiskEngine;
+  final VoidCallback? onPortal;
 
   @override
   State<TrustJugglerRoleSelector> createState() =>
@@ -37,12 +43,17 @@ class _TrustJugglerRoleSelectorState extends State<TrustJugglerRoleSelector> {
   void _selectDestination(int index) {
     setState(() => _selectedDestination = index);
     switch (index) {
-      case 1:
-        widget.onDriverAuth();
+      case 0:
+        widget.onPortal?.call();
         break;
-      case 2:
+      case 1:
         widget.onOnboarding();
         break;
+      case 2:
+        widget.onRiskEngine();
+        break;
+      default:
+        widget.onDriverAuth();
     }
   }
 
@@ -78,17 +89,17 @@ class _TrustJugglerRoleSelectorState extends State<TrustJugglerRoleSelector> {
                   icon: Icons.delivery_dining_outlined,
                   title: 'Driver Portal',
                   subtitle: 'Sign in, complete verification and view available deliveries.',
-                  action: 'CONTINUE AS DRIVER',
+                  action: 'ACCESS DRIVER PORTAL',
                   onTap: widget.onDriverAuth,
                   prominent: true,
                 ),
                 const SizedBox(height: 12),
                 _RoleCard(
                   icon: Icons.local_shipping_outlined,
-                  title: 'Fleet Dispatch',
+                  title: 'Admin Command',
                   subtitle:
                       'Fleet access requires an authorized operator account.',
-                  action: 'FLEET ACCESS',
+                  action: 'ENTER FLEET COMMAND',
                   onTap: widget.onFleetAccess,
                 ),
                 const SizedBox(height: 24),
@@ -150,15 +161,15 @@ class _TrustJugglerRoleSelectorState extends State<TrustJugglerRoleSelector> {
         NavigationDestination(
           icon: Icon(Icons.home_outlined),
           selectedIcon: Icon(Icons.home, color: _blue),
-          label: 'Home',
+          label: 'Portal',
         ),
         NavigationDestination(
-          icon: Icon(Icons.route_outlined),
-          label: 'Deliveries',
+          icon: Icon(Icons.assignment_ind_outlined),
+          label: 'Onboarding',
         ),
         NavigationDestination(
-          icon: Icon(Icons.person_outline),
-          label: 'Account',
+          icon: Icon(Icons.monitor_heart_outlined),
+          label: 'Risk Engine',
         ),
       ],
     ),
@@ -166,7 +177,9 @@ class _TrustJugglerRoleSelectorState extends State<TrustJugglerRoleSelector> {
 }
 
 class FleetAccessUnavailableScreen extends StatelessWidget {
-  const FleetAccessUnavailableScreen({super.key});
+  const FleetAccessUnavailableScreen({this.onAuthenticate, super.key});
+
+  final VoidCallback? onAuthenticate;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -181,7 +194,7 @@ class FleetAccessUnavailableScreen extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: const [
+          children: [
             Icon(Icons.admin_panel_settings_outlined, color: _blue, size: 52),
             SizedBox(height: 16),
             Text(
@@ -194,13 +207,299 @@ class FleetAccessUnavailableScreen extends StatelessWidget {
               ),
             ),
             SizedBox(height: 8),
-            Text(
-              'This app has no fleet-operator sign-in or administrator provisioning configured. Selecting Fleet Dispatch does not grant access.',
+            const Text(
+              'Fleet access is checked against a trusted administrator claim. Selecting Fleet Dispatch does not grant access.',
               textAlign: TextAlign.center,
               style: TextStyle(color: _muted, height: 1.5),
             ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: onAuthenticate,
+              icon: const Icon(Icons.lock_outline),
+              label: const Text('Sign in to Fleet Command'),
+            ),
           ],
         ),
+      ),
+    ),
+  );
+}
+
+class FleetAuditDashboard extends StatefulWidget {
+  const FleetAuditDashboard({this.functions, this.onSessionExpired, super.key});
+
+  final FirebaseFunctions? functions;
+  final VoidCallback? onSessionExpired;
+
+  @override
+  State<FleetAuditDashboard> createState() => _FleetAuditDashboardState();
+}
+
+class _FleetAuditDashboardState extends State<FleetAuditDashboard> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _events = const [];
+  StreamSubscription<User?>? _authSubscription;
+  bool _expiredHandled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAudit();
+    _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
+      if (user == null && !_expiredHandled) {
+        _expiredHandled = true;
+        widget.onSessionExpired?.call();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadAudit() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result =
+          await (widget.functions ??
+                  FirebaseFunctions.instanceFor(region: 'us-central1'))
+              .httpsCallable('getFleetAuditHistory')
+              .call<Map<String, dynamic>>();
+      final events = result.data['events'];
+      if (events is! List) {
+        throw const FormatException('Audit response is invalid.');
+      }
+      if (!mounted) return;
+      setState(() {
+        _events = events
+            .whereType<Map>()
+            .map((event) => Map<String, dynamic>.from(event))
+            .toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Fleet audit history could not be loaded. Check administrator access and service availability.';
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _page,
+    appBar: AppBar(
+      backgroundColor: Colors.white,
+      foregroundColor: _ink,
+      title: const Text('Fleet Command · Audit'),
+      actions: [
+        IconButton(
+          tooltip: 'Sign out',
+          onPressed: () => FirebaseAuth.instance.signOut(),
+          icon: const Icon(Icons.logout),
+        ),
+      ],
+    ),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _loadAudit,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        : _events.isEmpty
+        ? const Center(child: Text('No audit events have been recorded.'))
+        : ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: _events.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final event = _events[index];
+              return Card(
+                color: Colors.white,
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.receipt_long_outlined,
+                    color: _blue,
+                  ),
+                  title: Text('${event['action'] ?? 'Audit event'}'),
+                  subtitle: Text(
+                    'Rider: ${event['riderId'] ?? 'unknown'}\n${event['reason'] ?? ''}',
+                  ),
+                  isThreeLine: true,
+                  trailing: Text(
+                    '${event['newStatus'] ?? ''}',
+                    style: const TextStyle(color: _muted, fontSize: 11),
+                  ),
+                ),
+              );
+            },
+          ),
+  );
+}
+
+class DriverDeliveryPoolPage extends StatefulWidget {
+  const DriverDeliveryPoolPage({
+    required this.driverIdentity,
+    required this.onSignOut,
+    required this.onSessionExpired,
+    required this.onOpenBiometricQuickUnlock,
+    this.watchFirebaseSession = true,
+    this.demoMode = false,
+    super.key,
+  });
+
+  final String driverIdentity;
+  final Future<void> Function() onSignOut;
+  final VoidCallback onSessionExpired;
+  final VoidCallback onOpenBiometricQuickUnlock;
+  final bool watchFirebaseSession;
+  final bool demoMode;
+
+  @override
+  State<DriverDeliveryPoolPage> createState() => _DriverDeliveryPoolPageState();
+}
+
+class _DriverDeliveryPoolPageState extends State<DriverDeliveryPoolPage> {
+  StreamSubscription<User?>? _authSubscription;
+  bool _signingOut = false;
+  bool _sessionExpiredHandled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.watchFirebaseSession && !widget.demoMode) {
+      _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
+        if (user == null && !_sessionExpiredHandled) {
+          _sessionExpiredHandled = true;
+          widget.onSessionExpired();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _signOut() async {
+    if (_signingOut) return;
+    setState(() => _signingOut = true);
+    try {
+      await widget.onSignOut();
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _page,
+    body: SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 12, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _blue,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.local_shipping_outlined,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Driver Delivery Pool',
+                        style: TextStyle(
+                          color: _ink,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        widget.driverIdentity,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: _muted, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Local biometric quick unlock',
+                  onPressed: widget.onOpenBiometricQuickUnlock,
+                  icon: const Icon(Icons.fingerprint, color: _blue),
+                ),
+                IconButton(
+                  tooltip: 'Sign out',
+                  onPressed: _signingOut ? null : _signOut,
+                  icon: _signingOut
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.logout, color: _muted),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _line),
+          if (widget.demoMode)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(9),
+              color: const Color(0xFFFFF1D6),
+              child: const Text(
+                'LOCAL DEMO — NOT SYNCED TO FIREBASE',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF704900),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+              child: DriverDeliveryPoolScreen(
+                driverIdentity: widget.driverIdentity,
+              ),
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -250,9 +549,14 @@ class RiskEngineUnavailableScreen extends StatelessWidget {
 /// Delivery examples are explicitly marked as sample data. Acceptance is
 /// disabled because no server-side order acceptance operation exists.
 class DriverDeliveryPoolScreen extends StatefulWidget {
-  const DriverDeliveryPoolScreen({this.onPreviewDispatch, super.key});
+  const DriverDeliveryPoolScreen({
+    this.onPreviewDispatch,
+    this.driverIdentity,
+    super.key,
+  });
 
   final ValueChanged<DriverOrderSummary>? onPreviewDispatch;
+  final String? driverIdentity;
 
   @override
   State<DriverDeliveryPoolScreen> createState() =>
@@ -307,7 +611,7 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
 
   bool _matchesFilter(DriverOrderSummary order, String filter) =>
       switch (filter) {
-        'High payout' => order.tags.toLowerCase().contains('high payout'),
+        'High Payout' => order.tags.toLowerCase().contains('high payout'),
         'Express Delivery' => order.serviceType.toLowerCase() == 'express',
         'Cold Chain' => order.serviceType.toLowerCase() == 'cold chain',
         _ => true,
@@ -359,6 +663,13 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
             ],
           ),
           const SizedBox(height: 6),
+          if (widget.driverIdentity != null) ...[
+            Text(
+              'Signed in as ${widget.driverIdentity}',
+              style: const TextStyle(color: _muted, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+          ],
           const Text(
             'Illustrative demo orders · not live dispatch inventory',
             style: TextStyle(color: _muted, fontSize: 12),
@@ -366,7 +677,7 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
           const SizedBox(height: 14),
           Wrap(
             spacing: 8,
-            children: ['All', 'High payout', 'Express Delivery', 'Cold Chain']
+            children: ['All', 'High Payout', 'Express Delivery', 'Cold Chain']
                 .map(
                   (filter) => ChoiceChip(
                     label: Text(filter),
@@ -459,9 +770,27 @@ class _DriverDeliveryPoolScreenState extends State<DriverDeliveryPoolScreen> {
           const SizedBox(height: 8),
           OutlinedButton.icon(
             key: const Key('preview-dispatch-verification'),
-            onPressed: widget.onPreviewDispatch == null
-                ? null
-                : () => widget.onPreviewDispatch!(order),
+            onPressed: () {
+              if (widget.onPreviewDispatch != null) {
+                widget.onPreviewDispatch!(order);
+                return;
+              }
+              showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Sample order preview'),
+                  content: Text(
+                    '${order.id} remains a demo order. No acceptance or dispatch was submitted.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              );
+            },
             icon: const Icon(Icons.verified_user_outlined),
             label: const Text('Preview dispatch verification'),
           ),

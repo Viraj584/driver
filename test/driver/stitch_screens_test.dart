@@ -22,14 +22,14 @@ void main() {
     );
 
     expect(find.text('Driver Portal'), findsOneWidget);
-    expect(find.text('Fleet Dispatch'), findsOneWidget);
-    await tester.tap(find.text('CONTINUE AS DRIVER'));
-    await tester.ensureVisible(find.text('Onboarding'));
-    await tester.tap(find.text('Onboarding'));
-    await tester.ensureVisible(find.text('FLEET ACCESS'));
-    await tester.tap(find.text('FLEET ACCESS'));
-    await tester.ensureVisible(find.text('Risk Engine'));
-    await tester.tap(find.text('Risk Engine'));
+    expect(find.text('Admin Command'), findsOneWidget);
+    await tester.tap(find.text('ACCESS DRIVER PORTAL'));
+    await tester.ensureVisible(find.text('Onboarding').first);
+    await tester.tap(find.text('Onboarding').first);
+    await tester.ensureVisible(find.text('ENTER FLEET COMMAND'));
+    await tester.tap(find.text('ENTER FLEET COMMAND'));
+    await tester.ensureVisible(find.text('Risk Engine').first);
+    await tester.tap(find.text('Risk Engine').first);
     expect(driverAuth, 1);
     expect(onboarding, 1);
     expect(fleetAccess, 1);
@@ -50,10 +50,36 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
-    await tester.ensureVisible(find.text('FLEET ACCESS'));
+    await tester.ensureVisible(find.text('ENTER FLEET COMMAND'));
     expect(tester.takeException(), isNull);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+  });
+
+  testWidgets('bottom destinations open portal, onboarding, and risk actions', (
+    tester,
+  ) async {
+    var portal = 0;
+    var onboarding = 0;
+    var risk = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TrustJugglerRoleSelector(
+          onDriverAuth: () {},
+          onOnboarding: () => onboarding++,
+          onFleetAccess: () {},
+          onRiskEngine: () => risk++,
+          onPortal: () => portal++,
+        ),
+      ),
+    );
+    final navigation = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    navigation.onDestinationSelected!(0);
+    navigation.onDestinationSelected!(1);
+    navigation.onDestinationSelected!(2);
+    expect(portal, 1);
+    expect(onboarding, 1);
+    expect(risk, 1);
   });
 
   testWidgets('fleet route communicates that role selection gives no access', (
@@ -79,7 +105,7 @@ void main() {
     expect(find.textContaining('not live dispatch inventory'), findsOneWidget);
     expect(find.text('TechCorp Logistics Hub (Gate 3)'), findsOneWidget);
     expect(find.textContaining('UNAVAILABLE'), findsOneWidget);
-    await tester.tap(find.text('High payout'));
+    await tester.tap(find.text('High Payout'));
     await tester.pump();
     expect(find.text('Greenfield Regional Depot (Bay 11)'), findsNothing);
     expect(find.text('TechCorp Logistics Hub (Gate 3)'), findsOneWidget);
@@ -93,4 +119,36 @@ void main() {
     expect(find.text('Metro Cold Storage Unit B'), findsOneWidget);
     expect(find.text('TechCorp Logistics Hub (Gate 3)'), findsNothing);
   });
+
+  testWidgets(
+    'delivery pool uses authenticated identity and labels confirmation demo',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DriverDeliveryPoolPage(
+            driverIdentity: 'driver@example.test',
+            onSignOut: () async {},
+            onSessionExpired: () {},
+            onOpenBiometricQuickUnlock: () {},
+            watchFirebaseSession: false,
+          ),
+        ),
+      );
+      expect(find.text('driver@example.test'), findsOneWidget);
+      expect(
+        find.textContaining('not live dispatch inventory'),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('preview-dispatch-verification')),
+      );
+      await tester.tap(find.byKey(const Key('preview-dispatch-verification')));
+      await tester.pumpAndSettle();
+      expect(find.text('Sample order preview'), findsOneWidget);
+      expect(
+        find.textContaining('No acceptance or dispatch was submitted.'),
+        findsOneWidget,
+      );
+    },
+  );
 }

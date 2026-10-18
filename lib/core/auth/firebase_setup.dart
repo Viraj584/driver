@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../../firebase_options.dart';
 
 class FirebaseSetup {
+  static const isDemoMode = bool.fromEnvironment('DEMO_MODE');
   static const _forceDevelopmentMode = bool.fromEnvironment(
     'TRUST_JUGGLER_FIREBASE_DISABLED',
   );
@@ -18,10 +19,10 @@ class FirebaseSetup {
   static bool _emulatorsConnected = false;
 
   static bool get isConfigured =>
-      !_forceDevelopmentMode && Firebase.apps.isNotEmpty;
+      !isDemoMode && !_forceDevelopmentMode && Firebase.apps.isNotEmpty;
 
   static Future<void> initialize() async {
-    if (_forceDevelopmentMode) return;
+    if (isDemoMode || _forceDevelopmentMode) return;
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
