@@ -9,9 +9,14 @@ import 'core/auth/account_access_gate.dart';
 import 'core/auth/auth_gateway.dart';
 import 'core/auth/firebase_setup.dart';
 import 'core/auth/driver_backend_gateway.dart';
+import 'core/auth/local_backend_auth_gateway.dart';
+import 'core/auth/local_backend_driver_gateway.dart';
+import 'core/deliveries/delivery_repository.dart';
+import 'core/network/api_client.dart';
+import 'core/network/api_config.dart';
+import 'core/risk/local_backend_risk_gateway.dart';
 import 'core/risk/risk_gateway.dart';
 import 'core/security/secure_storage_service.dart';
-import 'core/security/security_diagnostics.dart';
 import 'core/security/session_manager.dart';
 import 'features/driver/stitch_screens.dart';
 import 'features/driver/driver_journey_screens.dart';
@@ -22,37 +27,37 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   String? initializationError;
   var initialAdminClaim = false;
-  try {
-    await FirebaseSetup.initialize();
-  } on FirebaseException catch (error) {
-    initializationError = error.code;
-    SecurityDiagnostics.failure(
-      operation: 'firebaseInitialize',
-      correlationId: SecurityDiagnostics.newCorrelationId(),
-      exceptionCode: error.code,
-    );
-  } catch (_) {
-    initializationError = 'unknown error';
-    SecurityDiagnostics.failure(
-      operation: 'firebaseInitialize',
-      correlationId: SecurityDiagnostics.newCorrelationId(),
-      exceptionCode: 'unexpected-initialization-error',
-    );
-  }
+
+  // Initialize the local backend API client and gateways
+  final apiClient = ApiClient(baseUrl: ApiConfig.resolveBaseUrl());
+  final localAuthGateway = LocalBackendAuthGateway(apiClient: apiClient);
+  final localDriverBackend = LocalBackendDriverGateway(apiClient: apiClient);
+  final localRiskGateway = LocalBackendRiskGateway(apiClient: apiClient);
+  final localDeliveryRepo = LocalBackendDeliveryRepository(apiClient: apiClient);
+
+  // If Firebase is available, perform graceful initialization
   if (FirebaseSetup.isConfigured) {
     try {
+      await FirebaseSetup.initialize();
       initialAdminClaim =
           (await FirebaseAuth.instance.currentUser?.getIdTokenResult())
               ?.claims?['admin'] ==
           true;
+    } on FirebaseException catch (error) {
+      initializationError = error.code;
     } catch (_) {
-      // The admin gate will recheck authorization through the callable.
+      initializationError = 'unknown error';
     }
   }
+
   runApp(
     TrustJugglerApp(
-      firebaseConfigured: FirebaseSetup.isConfigured,
-      demoMode: FirebaseSetup.isDemoMode,
+      firebaseConfigured: true,
+      demoMode: false,
+      authGateway: localAuthGateway,
+      driverBackend: localDriverBackend,
+      riskGateway: localRiskGateway,
+      deliveryRepository: localDeliveryRepo,
       initializationError: initializationError,
       initialAdminClaim: initialAdminClaim,
     ),
@@ -89,6 +94,8 @@ class TrustJugglerApp extends StatefulWidget {
     this.initialAdminClaim = false,
     this.authGateway,
     this.driverBackend,
+    this.riskGateway,
+    this.deliveryRepository,
     this.demoMode = false,
     super.key,
   });
@@ -99,6 +106,8 @@ class TrustJugglerApp extends StatefulWidget {
   final bool initialAdminClaim;
   final AuthGateway? authGateway;
   final DriverBackendGateway? driverBackend;
+  final RiskEventGateway? riskGateway;
+  final DeliveryRepository? deliveryRepository;
   final bool demoMode;
 
   @override
@@ -217,6 +226,8 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
       MaterialPageRoute<void>(
         builder: (_) => DriverDeliveryPoolPage(
           driverIdentity: identity,
+          authGateway: widget.authGateway,
+          deliveryRepository: widget.deliveryRepository,
           onSignOut: () async {
             await _session.logout();
             final auth = widget.authGateway;
@@ -264,7 +275,8 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
     _navigatorKey.currentState?.push(
       MaterialPageRoute<void>(
         builder: (_) => FleetAccessUnavailableScreen(
-          onAuthenticate: widget.firebaseConfigured && !widget.demoMode
+          onAuthenticate: (widget.firebaseConfigured && !widget.demoMode) ||
+                  widget.authGateway != null
               ? () {
                   Navigator.of(_navigatorKey.currentContext!).pop();
                   _openAdminAuth();
@@ -284,7 +296,32 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
   void _replaceWithFleetDashboard(User user) {
     _navigatorKey.currentState?.pushReplacement(
       MaterialPageRoute<void>(
-        builder: (_) => FleetAuditDashboard(onSessionExpired: _returnToPortal),
+        builder: (_) => FleetAuditDashboard(
+          authGateway: widget.authGateway,
+          onSessionExpired: _returnToPortal,
+          onSignOut: () async {
+            await _session.logout();
+            final auth = widget.authGateway;
+            if (auth != null) {
+              await auth.signOut();
+            } else {
+              await FirebaseAuth.instance.signOut();
+            }
+          },
+          loadEvents: widget.riskGateway != null
+              ? () async {
+                  final events = await widget.riskGateway!.getAuditHistory();
+                  return events
+                      .map((e) => {
+                            'action': e.action,
+                            'riderId': e.riderId,
+                            'reason': e.reason,
+                            'newStatus': e.newStatus,
+                          })
+                      .toList();
+                }
+              : null,
+        ),
       ),
     );
   }
@@ -293,14 +330,16 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
     _navigatorKey.currentState?.push(
       MaterialPageRoute<void>(
         builder: (_) => RiskDemoScreen(
-          firebaseConfigured: widget.firebaseConfigured && !widget.demoMode,
-          backend: widget.firebaseConfigured && !widget.demoMode
-              ? FirebaseRiskEventGateway(
-                  functions: FirebaseFunctions.instanceFor(
-                    region: driverFunctionsRegion,
-                  ),
-                )
-              : null,
+          firebaseConfigured: (widget.firebaseConfigured && !widget.demoMode) ||
+              widget.riskGateway != null,
+          backend: widget.riskGateway ??
+              (widget.firebaseConfigured && !widget.demoMode
+                  ? FirebaseRiskEventGateway(
+                      functions: FirebaseFunctions.instanceFor(
+                        region: driverFunctionsRegion,
+                      ),
+                    )
+                  : null),
         ),
       ),
     );

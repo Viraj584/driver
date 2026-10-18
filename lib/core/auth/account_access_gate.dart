@@ -8,6 +8,9 @@ import 'package:flutter/material.dart';
 import 'auth_gateway.dart';
 import 'credential_policy.dart';
 import 'driver_backend_gateway.dart';
+import 'local_backend_auth_gateway.dart';
+import 'local_backend_driver_gateway.dart';
+import '../network/api_client.dart';
 import '../security/security_diagnostics.dart';
 
 /// Requires Firebase account sign-in and server profile bootstrap when Firebase
@@ -95,6 +98,9 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
   bool _adminVerified = false;
   String? _adminFailure;
 
+  bool get _isConfigured =>
+      (widget.firebaseConfigured && !widget.demoMode) || _auth != null;
+
   @override
   void initState() {
     super.initState();
@@ -105,7 +111,14 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
               (widget.firebaseConfigured
                   ? FirebaseAuthGateway(FirebaseAuth.instance)
                   : null);
-    _backend = widget.demoMode ? null : widget.backend;
+    _backend = widget.demoMode
+        ? null
+        : widget.backend ??
+            (_auth is LocalBackendAuthGateway
+                ? LocalBackendDriverGateway(
+                    apiClient: _auth.apiClient,
+                  )
+                : null);
     if (_auth != null) {
       _user = _auth.currentUser;
       _observedUserUid = _user?.uid;
@@ -171,7 +184,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
   }
 
   Future<void> _verifyAdmin(User user) async {
-    if (_adminCheckInFlight || !widget.firebaseConfigured) return;
+    if (_adminCheckInFlight || !_isConfigured) return;
     _adminCheckInFlight = true;
     if (mounted) {
       setState(() {
@@ -183,6 +196,14 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       final verifier = widget.verifyAdminAccess;
       if (verifier != null) {
         await verifier(user);
+      } else if (user is LocalBackendUser || _auth is LocalBackendAuthGateway) {
+        final result = await user.getIdTokenResult(true);
+        if (result.claims?['admin'] != true) {
+          throw FirebaseFunctionsException(
+            message: 'Permission denied',
+            code: 'permission-denied',
+          );
+        }
       } else {
         await user.getIdToken(true);
         await FirebaseFunctions.instanceFor(region: driverFunctionsRegion)
@@ -203,7 +224,8 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
     } catch (_) {
       if (mounted && _user?.uid == user.uid) {
         setState(
-          () => _adminFailure = 'Fleet authorization could not be confirmed. Retry when the service is available.',
+          () => _adminFailure =
+              'Fleet authorization could not be confirmed. Retry when the service is available.',
         );
       }
     } finally {
@@ -213,8 +235,8 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
   }
 
   Future<void> _bootstrapProfile(User user) async {
-    if (_bootstrapped || _bootstrapInFlight || !widget.firebaseConfigured) {
-      if (mounted && !widget.firebaseConfigured) {
+    if (_bootstrapped || _bootstrapInFlight || !_isConfigured) {
+      if (mounted && !_isConfigured) {
         setState(() => _bootstrapped = true);
       }
       return;
@@ -367,6 +389,16 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
       if (mounted) {
         setState(() => _message = _backendFailureMessage(error.kind));
       }
+    } on ApiException catch (error) {
+      SecurityDiagnostics.failure(
+        operation: operation,
+        callableName: callableName,
+        correlationId: correlationId,
+        exceptionCode: error.code,
+      );
+      if (mounted) {
+        setState(() => _message = error.message);
+      }
     } on StateError catch (error) {
       if (mounted) {
         setState(() => _message = error.message);
@@ -497,7 +529,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
         ),
       );
     }
-    if (!widget.firebaseConfigured) {
+    if (!_isConfigured) {
       return Column(
         children: [
           const _ModeBanner(text: 'DEVELOPMENT MODE • FIREBASE NOT CONFIGURED'),

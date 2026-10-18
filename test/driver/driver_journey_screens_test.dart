@@ -104,4 +104,47 @@ void main() {
       ProviderOperationStatus.unavailable,
     );
   });
+
+  testWidgets('biometric verification screen complies with all layout rectifications', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DispatchConfirmationScreen(
+          order: _order,
+          onPreviewCompletion: () {},
+        ),
+      ),
+    );
+
+    // 1. Top App Bar displays full title without cutoffs
+    expect(find.text('Biometric Order Verification'), findsOneWidget);
+
+    // 2. Tab selector has single line Face Scan and Fingerprint with minHeight >= 48
+    expect(find.text('Face Scan'), findsOneWidget);
+    expect(find.text('Fingerprint'), findsOneWidget);
+
+    // 3. KYC Biometric Confidence card is present with separated match indicator
+    expect(find.text('KYC Biometric Confidence'), findsOneWidget);
+    expect(find.text('94.8% Match'), findsOneWidget);
+
+    // 4. Action buttons have minimumSize height >= 52
+    final confirmButton = tester.widget<FilledButton>(
+      find.byKey(const Key('dispatch-confirm-disabled')),
+    );
+    expect(confirmButton.style?.minimumSize?.resolve({})?.height, greaterThanOrEqualTo(52));
+    expect(find.text('Scan Face to Confirm & Dispatch'), findsOneWidget);
+
+    final navButton = tester.widget<FilledButton>(
+      find.byKey(const Key('dispatch-navigation-unavailable')),
+    );
+    expect(navButton.style?.minimumSize?.resolve({})?.height, greaterThanOrEqualTo(52));
+    expect(find.text('Start GPS Turn-by-Turn Navigation'), findsOneWidget);
+
+    // 5. Toggling to Fingerprint updates button text and retains minHeight >= 52
+    await tester.tap(find.text('Fingerprint'));
+    await tester.pumpAndSettle();
+    expect(find.text('Place Finger to Confirm & Dispatch'), findsOneWidget);
+    expect(find.text('Place Thumb on Sensor Prism'), findsOneWidget);
+  });
 }
