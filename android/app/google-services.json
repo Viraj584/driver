@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "373314704749",
+    "project_id": "trust-juggler-5dac9",
+    "storage_bucket": "trust-juggler-5dac9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:373314704749:android:cab0d679a811f385607664",
+        "android_client_info": {
+          "package_name": "com.trustjuggler.rider_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "373314704749-k8tu9hspth0oob68t58ouku97p71f400.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQ61TIjpvuZ0ll3ZsBkuaXQ7WpZ54zCeM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "373314704749-k8tu9hspth0oob68t58ouku97p71f400.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
