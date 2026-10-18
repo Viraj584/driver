@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rider_app/core/auth/account_access_gate.dart';
@@ -15,7 +16,8 @@ class StubUser implements User {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class FakeAuthGateway implements AuthGateway {
+class FakeAuthGateway
+    implements AuthGateway, PasswordAuthGateway, GoogleAuthGateway {
   final changes = StreamController<User?>.broadcast();
   User? activeUser;
   Completer<void> sendCodeGate = Completer<void>()..complete();
@@ -28,8 +30,15 @@ class FakeAuthGateway implements AuthGateway {
   String? lastCode;
   Object? sendCodeError;
   Object? verifyCodeError;
+  Object? passwordSignInError;
   Object? emailLinkError;
   Object? finishEmailLinkError;
+  int passwordSignInCalls = 0;
+  int passwordCreateCalls = 0;
+  int googleSignInCalls = 0;
+  bool googleCancelled = false;
+  String? passwordEmail;
+  String? passwordValue;
 
   @override
   User? get currentUser => activeUser;
@@ -67,6 +76,7 @@ class FakeAuthGateway implements AuthGateway {
     lastCode = code;
     final error = verifyCodeError;
     if (error != null) throw error;
+    emitSignedIn();
   }
 
   @override
@@ -83,12 +93,49 @@ class FakeAuthGateway implements AuthGateway {
   }
 
   @override
+  Future<void> signInWithEmailPassword(String email, String password) async {
+    passwordSignInCalls++;
+    passwordEmail = email;
+    passwordValue = password;
+    if (passwordSignInError != null) throw passwordSignInError!;
+    emitSignedIn();
+  }
+
+  @override
+  Future<void> createEmailPasswordAccount(String email, String password) async {
+    passwordCreateCalls++;
+    passwordEmail = email;
+    passwordValue = password;
+    emitSignedIn();
+  }
+
+  @override
+  Future<void> signInWithGoogle() async {
+    googleSignInCalls++;
+    if (googleCancelled) return;
+    emitSignedIn();
+  }
+
+  @override
   Future<void> signOut() async {
     signOutCalls++;
     emitSignedOut();
   }
 
   Future<void> close() => changes.close();
+}
+
+Finder textFieldWithLabel(String label) => find.byWidgetPredicate(
+  (widget) => widget is TextField && widget.decoration?.labelText == label,
+);
+
+Future<void> openEmailMethods(WidgetTester tester) async {
+  final section = find.text('Use email and password');
+  if (section.evaluate().isNotEmpty) {
+    await tester.ensureVisible(section);
+    await tester.tap(section);
+    await tester.pumpAndSettle();
+  }
 }
 
 class FakeDriverBackend implements DriverBackendGateway {
@@ -99,6 +146,7 @@ class FakeDriverBackend implements DriverBackendGateway {
   String documentsStatus = 'verified';
   String trainingStatus = 'complete';
   String deviceStatus = 'enrolled';
+  String riskStatus = 'ACTIVE';
   int failuresRemaining = 0;
 
   @override
@@ -115,6 +163,7 @@ class FakeDriverBackend implements DriverBackendGateway {
       deviceEnrollmentStatus: deviceStatus,
       requiredDocumentsStatus: documentsStatus,
       trainingStatus: trainingStatus,
+      riskStatus: riskStatus,
     );
   }
 
@@ -166,6 +215,77 @@ void main() {
     expect(find.text('FIREBASE ACCOUNT SIGN-IN'), findsNothing);
   });
 
+  testWidgets('email password sign-in invokes Firebase gateway path', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    final backend = FakeDriverBackend();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          backend: backend,
+          child: const Text('protected app'),
+        ),
+      ),
+    );
+    await openEmailMethods(tester);
+    await tester.enterText(
+      textFieldWithLabel('Email address'),
+      'rider@example.test',
+    );
+    await tester.enterText(
+      textFieldWithLabel('Password'),
+      'correct-horse-battery',
+    );
+    await tester.ensureVisible(find.text('Log in with email'));
+    await tester.tap(find.text('Log in with email'));
+    await tester.pumpAndSettle();
+    expect(auth.passwordSignInCalls, 1);
+    expect(auth.passwordEmail, 'rider@example.test');
+    expect(auth.passwordValue, 'correct-horse-battery');
+    expect(backend.profileCalls, 1);
+    expect(find.text('protected app'), findsOneWidget);
+    await auth.close();
+  });
+
+  testWidgets('email password account creation uses Firebase gateway path', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    final backend = FakeDriverBackend()
+      ..registrationStatus = 'registration_pending';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          startInSignUp: true,
+          auth: auth,
+          backend: backend,
+          child: const Text('protected app'),
+        ),
+      ),
+    );
+    await openEmailMethods(tester);
+    await tester.enterText(
+      textFieldWithLabel('Email address'),
+      'rider@example.test',
+    );
+    await tester.enterText(
+      textFieldWithLabel('Password'),
+      'correct-horse-battery',
+    );
+    await tester.ensureVisible(find.text('Create account with email'));
+    await tester.tap(find.text('Create account with email'));
+    await tester.pumpAndSettle();
+    expect(auth.passwordCreateCalls, 1);
+    expect(auth.passwordSignInCalls, 0);
+    expect(find.text('Driver onboarding'), findsOneWidget);
+    expect(find.text('protected app'), findsNothing);
+    await auth.close();
+  });
+
   testWidgets('account content waits for auth and server profile state', (
     tester,
   ) async {
@@ -197,6 +317,178 @@ void main() {
     await auth.close();
   });
 
+  testWidgets(
+    'eligible Firebase driver redirects once after trusted profile check',
+    (tester) async {
+      final auth = FakeAuthGateway();
+      final backend = FakeDriverBackend();
+      var redirects = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AccountAccessGate(
+            firebaseConfigured: true,
+            auth: auth,
+            backend: backend,
+            onDriverAccessGranted: (_) => redirects++,
+            child: const Text('driver delivery pool'),
+          ),
+        ),
+      );
+      auth.emitSignedIn();
+      await tester.pumpAndSettle();
+      auth.changes.add(auth.activeUser);
+      await tester.pumpAndSettle();
+      expect(backend.profileCalls, 1);
+      expect(redirects, 1);
+      expect(find.text('driver delivery pool'), findsOneWidget);
+      await auth.close();
+    },
+  );
+
+  testWidgets('step-up risk status keeps otherwise approved driver locked', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    final backend = FakeDriverBackend()..riskStatus = 'LIVENESS_PENDING';
+    var redirects = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          backend: backend,
+          onDriverAccessGranted: (_) => redirects++,
+          child: const Text('driver delivery pool'),
+        ),
+      ),
+    );
+    auth.emitSignedIn();
+    await tester.pumpAndSettle();
+    expect(redirects, 0);
+    expect(find.text('driver delivery pool'), findsNothing);
+    expect(find.textContaining('additional verification'), findsOneWidget);
+    await auth.close();
+  });
+
+  testWidgets('Google cancellation stays on sign-in without a false success', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway()..googleCancelled = true;
+    var redirects = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          backend: FakeDriverBackend(),
+          googleSignInAvailable: true,
+          onDriverAccessGranted: (_) => redirects++,
+          child: const Text('driver delivery pool'),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Continue with Google'));
+    await tester.pumpAndSettle();
+    expect(auth.googleSignInCalls, 1);
+    expect(redirects, 0);
+    expect(find.text('driver delivery pool'), findsNothing);
+    expect(find.textContaining('could not be completed'), findsNothing);
+    await auth.close();
+  });
+
+  testWidgets('invalid email credentials stay on the login form', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway()
+      ..passwordSignInError = FirebaseAuthException(code: 'invalid-credential');
+    var redirects = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          backend: FakeDriverBackend(),
+          onDriverAccessGranted: (_) => redirects++,
+          child: const Text('driver delivery pool'),
+        ),
+      ),
+    );
+    await openEmailMethods(tester);
+    await tester.enterText(
+      textFieldWithLabel('Email address'),
+      'rider@example.test',
+    );
+    await tester.enterText(
+      textFieldWithLabel('Password'),
+      'incorrect-password',
+    );
+    await tester.ensureVisible(find.text('Log in with email'));
+    await tester.tap(find.text('Log in with email'));
+    await tester.pumpAndSettle();
+    expect(redirects, 0);
+    expect(
+      find.text(
+        'Email, password, phone code, or Google credential was not recognized.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('driver delivery pool'), findsNothing);
+    await auth.close();
+  });
+
+  testWidgets('admin route requires server authorization before access', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    var adminRedirects = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          adminAccess: true,
+          auth: auth,
+          verifyAdminAccess: (_) async {},
+          onAdminAccessGranted: (_) => adminRedirects++,
+          child: const Text('fleet audit dashboard'),
+        ),
+      ),
+    );
+    auth.emitSignedIn();
+    await tester.pumpAndSettle();
+    expect(adminRedirects, 1);
+    expect(find.text('fleet audit dashboard'), findsOneWidget);
+    await auth.close();
+  });
+
+  testWidgets('driver account cannot enter the admin route', (tester) async {
+    final auth = FakeAuthGateway();
+    var adminRedirects = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          adminAccess: true,
+          auth: auth,
+          verifyAdminAccess: (_) async => throw FirebaseFunctionsException(
+            code: 'permission-denied',
+            message: 'admin required',
+          ),
+          onAdminAccessGranted: (_) => adminRedirects++,
+          child: const Text('fleet audit dashboard'),
+        ),
+      ),
+    );
+    auth.emitSignedIn();
+    await tester.pumpAndSettle();
+    expect(adminRedirects, 0);
+    expect(find.text('fleet audit dashboard'), findsNothing);
+    expect(
+      find.text('This account is not authorized for Fleet Command.'),
+      findsOneWidget,
+    );
+    await auth.close();
+  });
+
   testWidgets('stale sign-in event cannot override a later sign-out event', (
     tester,
   ) async {
@@ -221,7 +513,7 @@ void main() {
     lockGate.complete();
     await tester.pumpAndSettle();
     expect(backend.profileCalls, 0);
-    expect(find.text('FIREBASE ACCOUNT SIGN-IN'), findsOneWidget);
+    expect(find.text('Registered Mobile Number'), findsOneWidget);
     expect(find.text('protected app'), findsNothing);
     await auth.close();
   });
@@ -356,16 +648,71 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
-    await tester.tap(find.text('Send SMS code'));
+    await tester.enterText(
+      textFieldWithLabel('Registered Mobile Number'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Get OTP'));
+    await tester.tap(find.text('Get OTP'));
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 1);
     expect(auth.lastPhoneNumber, '+15555550100');
-    expect(find.text('SMS verification code'), findsOneWidget);
+    expect(find.text('6-Digit Verification Code'), findsOneWidget);
     expect(
       find.text('SMS sent. Enter the code before it expires.'),
       findsOneWidget,
     );
+    await auth.close();
+  });
+
+  testWidgets('successful phone OTP routes only after server profile is approved', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    var redirects = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          backend: FakeDriverBackend(),
+          onDriverAccessGranted: (_) => redirects++,
+          child: const Text('driver delivery pool'),
+        ),
+      ),
+    );
+    await tester.enterText(textFieldWithLabel('Registered Mobile Number'), '+15555550100');
+    await tester.tap(find.text('Get OTP'));
+    await tester.pumpAndSettle();
+    await tester.enterText(textFieldWithLabel('6-Digit Verification Code'), '123456');
+    await tester.tap(find.text('Verify & Access Shift'));
+    await tester.pumpAndSettle();
+    expect(redirects, 1);
+    expect(find.text('driver delivery pool'), findsOneWidget);
+    await auth.close();
+  });
+
+  testWidgets('mobile onboarding login remains responsive at 320 pixels', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    final auth = FakeAuthGateway();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          child: const SizedBox.shrink(),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.enterText(textFieldWithLabel('Registered Mobile Number'), '+15555550100');
+    await tester.ensureVisible(find.text('Get OTP'));
+    expect(tester.takeException(), isNull);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await auth.close();
   });
 
@@ -382,8 +729,12 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '9876543210');
-    await tester.tap(find.text('Send SMS code'));
+    await tester.enterText(
+      textFieldWithLabel('Registered Mobile Number'),
+      '9876543210',
+    );
+    await tester.ensureVisible(find.text('Get OTP'));
+    await tester.tap(find.text('Get OTP'));
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 0);
     expect(find.textContaining('international phone number'), findsOneWidget);
@@ -404,26 +755,32 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
-    await tester.tap(find.text('Send SMS code'));
+    await tester.enterText(
+      textFieldWithLabel('Registered Mobile Number'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Get OTP'));
+    await tester.tap(find.text('Get OTP'));
     await tester.pumpAndSettle();
-    expect(find.text('Resend in 30s'), findsOneWidget);
+    expect(find.text('Resend 30'), findsOneWidget);
     await tester.pump(const Duration(seconds: 30));
     await tester.pumpAndSettle();
     auth.verificationId = 'replacement-verification-id';
-    await tester.tap(find.text('Resend SMS code'));
+    await tester.ensureVisible(find.text('Resend'));
+    await tester.tap(find.text('Resend'));
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 2);
-    expect(find.text('Resend in 30s'), findsOneWidget);
+    expect(find.text('Resend 30'), findsOneWidget);
     await tester.enterText(
       find.byWidgetPredicate(
         (widget) =>
             widget is TextField &&
-            widget.decoration?.labelText == 'SMS verification code',
+            widget.decoration?.labelText == '6-Digit Verification Code',
       ),
-      ' 001234 ',
+      '001234',
     );
-    await tester.tap(find.text('Verify SMS code'));
+    await tester.ensureVisible(find.text('Verify & Access Shift'));
+    await tester.tap(find.text('Verify & Access Shift'));
     await tester.pumpAndSettle();
     expect(auth.lastVerificationId, 'replacement-verification-id');
     expect(auth.lastCode, '001234');
@@ -443,16 +800,20 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
-    await tester.tap(find.text('Send SMS code'));
+    await tester.enterText(
+      textFieldWithLabel('Registered Mobile Number'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Get OTP'));
+    await tester.tap(find.text('Get OTP'));
     await tester.pump();
-    expect(find.text('Please wait…'), findsOneWidget);
-    await tester.tap(find.text('Please wait…'), warnIfMissed: false);
+    expect(find.text('Sending…'), findsOneWidget);
+    await tester.tap(find.text('Sending…'), warnIfMissed: false);
     expect(auth.sendCodeCalls, 1);
     auth.sendCodeGate.complete();
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 1);
-    expect(find.text('SMS verification code'), findsOneWidget);
+    expect(find.text('6-Digit Verification Code'), findsOneWidget);
     await auth.close();
   });
 
@@ -472,18 +833,23 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
-    await tester.tap(find.text('Send SMS code'));
+    await tester.enterText(
+      textFieldWithLabel('Registered Mobile Number'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Get OTP'));
+    await tester.tap(find.text('Get OTP'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byWidgetPredicate(
         (widget) =>
             widget is TextField &&
-            widget.decoration?.labelText == 'SMS verification code',
+            widget.decoration?.labelText == '6-Digit Verification Code',
       ),
       '123456',
     );
-    await tester.tap(find.text('Verify SMS code'));
+    await tester.ensureVisible(find.text('Verify & Access Shift'));
+    await tester.tap(find.text('Verify & Access Shift'));
     await tester.pumpAndSettle();
     expect(find.text('That SMS code is invalid.'), findsOneWidget);
     expect(find.text('protected app'), findsNothing);
@@ -503,7 +869,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, 'driver@example.test');
+    await openEmailMethods(tester);
+    await tester.enterText(
+      textFieldWithLabel('Email for sign-in link'),
+      'driver@example.test',
+    );
     await tester.ensureVisible(find.text('Send passwordless email link'));
     await tester.tap(find.text('Send passwordless email link'));
     await tester.pumpAndSettle();
@@ -529,7 +899,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, 'driver@example.test');
+    await openEmailMethods(tester);
+    await tester.enterText(
+      textFieldWithLabel('Email for sign-in link'),
+      'driver@example.test',
+    );
     await tester.ensureVisible(find.text('Send passwordless email link'));
     await tester.tap(find.text('Send passwordless email link'));
     await tester.pumpAndSettle();
@@ -559,8 +933,12 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
-    await tester.tap(find.text('Send SMS code'));
+    await tester.enterText(
+      textFieldWithLabel('Registered Mobile Number'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Get OTP'));
+    await tester.tap(find.text('Get OTP'));
     await tester.pumpAndSettle();
     expect(
       find.text('Too many attempts. Wait before requesting another code.'),

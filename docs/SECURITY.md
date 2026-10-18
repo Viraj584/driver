@@ -2,12 +2,11 @@
 
 ## Stored data
 
-There is currently no user identity, backend, access token, password, or other
-application secret in this prototype. Consequently, the app stores no session
-credentials. `SecureStorageService` is a narrow, namespaced facility for future
-session-only material; it deliberately rejects arbitrary keys and does not
-persist an authenticated flag or biometric result. Session state and timing
-metadata remain in memory only.
+Firebase Auth owns account credentials and tokens. The Flutter app stores no
+Firebase token, password, local authentication flag, or biometric result in its
+own secure-storage namespace. `SecureStorageService` remains a narrow,
+namespaced facility for future session-only material. Local session state and
+timing metadata remain in memory only.
 
 On Android, the service uses `flutter_secure_storage` with its current default
 RSA OAEP plus AES GCM encryption implementation and migration backup enabled.
@@ -42,23 +41,20 @@ after logout.
 
 ## Firebase account and backend boundary
 
-When Firebase client identifiers are configured at build time, the app uses
-Firebase Authentication for SMS phone verification and passwordless email-link
-sign-in. Email link is an officially supported Firebase passwordless method;
-it is not a numeric email OTP. Verified phone/email credentials can be linked
-to the currently signed-in UID. If the UID changes while verification is
-pending, the link/sign-in attempt fails closed. The app does not merge Firebase
-accounts automatically. If Firebase is not configured, the app visibly labels
-the experience Development Mode and only uses the local biometric demo. A
-configured Firebase initialization failure fails closed.
+The app supports Firebase email/password, phone OTP, passwordless email link,
+and Google OAuth credential sign-in. Firebase Console providers and OAuth
+clients must be configured; failures stay failures. Google OAuth client IDs
+passed as Dart defines are identifiers, not client secrets. Never put a service
+account, private key, or privileged token in the app.
 
-After sign-in, authenticated callable functions bootstrap a driver record with
-`registration_pending` and `identity_pending` server-side states. Device
-enrollment requests remain `pending_review`; a server custom admin claim is
-required to approve/revoke replacement records. Firestore client rules deny all
-direct reads and writes. Rate limits and audit events are implemented in the
-callables. App Check, admin web UI and emulator-backed integration tests are
-not yet configured.
+The risk callables require Firebase Auth. They accept a limited set of
+synthetic event labels and compute scores on the server. Firestore client
+reads/writes are denied; trusted callables use Admin SDK transactions to write
+session results, rider state, challenges, and append-only audit records. Admin
+fleet/history and review actions require the server-verified `admin` custom
+claim. A simulated challenge result never clears or restricts the rider; it
+marks review required. The functions and rules are implemented but have not
+been deployed or verified against the configured Firebase project.
 
 Ride start remains denied because no provider-backed face/liveness event is
 available. A successful account sign-in or local biometric check does not mark
@@ -72,11 +68,13 @@ a driver approved, prove device integrity or authorize a ride.
   protected UI. It is not a hardware-backed authorization boundary.
 - **Secure persistence** encrypts explicitly permitted local values with
   platform storage facilities. No such sensitive application value exists yet.
-- **Firebase account authentication** verifies a phone number or email-link
-  ownership with Firebase when configured; it does not approve driver
-  registration.
-- **Callable authorization** verifies Firebase Authentication context and
-  server-owned role/status/device records. Ride authorization remains closed.
+- **Firebase account authentication** can verify account credentials when the
+  supplied Firebase project is configured; it does not approve a rider.
+- **Local risk simulator** shows synthetic in-memory state when Firebase is
+  explicitly disabled.
+- **Server risk flow** stores synthetic event labels and server evaluations;
+  it does not verify physical location, device integrity, SIM changes, face
+  identity, or liveness.
 
 Logout and expiry clear the manager's in-memory session timestamps and delete
 all keys in the service's session namespace. Storage errors are shown without
@@ -95,14 +93,15 @@ security assessment or compliance claim. Flutter booleans, timers, and
 timestamps are not hardware-backed security. Secure storage and biometric-
 gated UI do not protect against rooted or compromised devices, malicious
 processes, instrumentation, or operating-system vulnerabilities. Firebase
-configuration and deployment are outstanding. There is no DigiLocker, face
-liveness/matching, device attestation, production admin console, or authorized
-ride flow.
+Console provider setup, OAuth setup, emulator-backed integration testing, and
+deployment remain outstanding. There is no DigiLocker, face liveness/matching,
+device attestation, or authorized ride flow. Simulator event labels are
+untrusted assertions and must not drive production fraud decisions.
 
 ## Checks
 
-Run `flutter pub get`, `dart format .`, `flutter analyze`, `flutter test`, and
-`flutter build apk --debug`. Install the debug build on an attached device with:
+See the current branch's final validation report for command outcomes. Install
+the debug build on an attached device with:
 
 ```sh
 adb install -r build/app/outputs/flutter-apk/app-debug.apk

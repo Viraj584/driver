@@ -50,6 +50,7 @@ class DriverProfileSummary {
     required this.deviceEnrollmentStatus,
     this.requiredDocumentsStatus = 'unknown',
     this.trainingStatus = 'unknown',
+    this.riskStatus = 'ACTIVE',
     this.registrationStatusReason,
     this.identityVerificationStatusReason,
     this.requiredDocumentsStatusReason,
@@ -62,6 +63,7 @@ class DriverProfileSummary {
   final String deviceEnrollmentStatus;
   final String requiredDocumentsStatus;
   final String trainingStatus;
+  final String riskStatus;
   final String? registrationStatusReason;
   final String? identityVerificationStatusReason;
   final String? requiredDocumentsStatusReason;
@@ -95,26 +97,42 @@ class FirebaseDriverBackendGateway implements DriverBackendGateway {
     await _callMap('ensureDriverProfile');
     final response = await _callMap('getDriverProfile');
     final profileStatusProvider = this.profileStatusProvider;
-    if (profileStatusProvider != null) {
-      return profileStatusProvider.getProfileStatus();
-    }
+    final profile = profileStatusProvider != null
+        ? await profileStatusProvider.getProfileStatus()
+        : DriverProfileSummary(
+            accountStatus: response['accountStatus'] as String? ?? 'unknown',
+            registrationStatus:
+                response['registrationStatus'] as String? ?? 'unknown',
+            identityVerificationStatus:
+                response['identityVerificationStatus'] as String? ?? 'unknown',
+            requiredDocumentsStatus:
+                response['requiredDocumentsStatus'] as String? ?? 'unknown',
+            trainingStatus: response['trainingStatus'] as String? ?? 'unknown',
+            registrationStatusReason:
+                response['registrationStatusReason'] as String?,
+            identityVerificationStatusReason:
+                response['identityVerificationStatusReason'] as String?,
+            requiredDocumentsStatusReason:
+                response['requiredDocumentsStatusReason'] as String?,
+            trainingStatusReason: response['trainingStatusReason'] as String?,
+            deviceEnrollmentStatus:
+                response['deviceEnrollmentStatus'] as String? ?? 'unknown',
+          );
+    final risk = await _callMap('getRiskEventHistory');
+    final riskStatus = risk['currentStatus'] as String? ?? 'UNKNOWN';
     return DriverProfileSummary(
-      accountStatus: response['accountStatus'] as String? ?? 'unknown',
-      registrationStatus:
-          response['registrationStatus'] as String? ?? 'unknown',
-      identityVerificationStatus:
-          response['identityVerificationStatus'] as String? ?? 'unknown',
-      requiredDocumentsStatus:
-          response['requiredDocumentsStatus'] as String? ?? 'unknown',
-      trainingStatus: response['trainingStatus'] as String? ?? 'unknown',
-      registrationStatusReason: response['registrationStatusReason'] as String?,
+      accountStatus: profile.accountStatus,
+      registrationStatus: profile.registrationStatus,
+      identityVerificationStatus: profile.identityVerificationStatus,
+      deviceEnrollmentStatus: profile.deviceEnrollmentStatus,
+      requiredDocumentsStatus: profile.requiredDocumentsStatus,
+      trainingStatus: profile.trainingStatus,
+      riskStatus: riskStatus,
+      registrationStatusReason: profile.registrationStatusReason,
       identityVerificationStatusReason:
-          response['identityVerificationStatusReason'] as String?,
-      requiredDocumentsStatusReason:
-          response['requiredDocumentsStatusReason'] as String?,
-      trainingStatusReason: response['trainingStatusReason'] as String?,
-      deviceEnrollmentStatus:
-          response['deviceEnrollmentStatus'] as String? ?? 'unknown',
+          profile.identityVerificationStatusReason,
+      requiredDocumentsStatusReason: profile.requiredDocumentsStatusReason,
+      trainingStatusReason: profile.trainingStatusReason,
     );
   }
 

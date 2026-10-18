@@ -1,21 +1,27 @@
 import 'dart:async';
 
-import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'core/auth/account_access_gate.dart';
+import 'core/auth/auth_gateway.dart';
 import 'core/auth/firebase_setup.dart';
+import 'core/auth/driver_backend_gateway.dart';
+import 'core/risk/risk_gateway.dart';
 import 'core/security/secure_storage_service.dart';
 import 'core/security/security_diagnostics.dart';
 import 'core/security/session_manager.dart';
 import 'features/driver/stitch_screens.dart';
 import 'features/driver/driver_journey_screens.dart';
 import 'features/driver/driver_earnings_screen.dart';
+import 'features/driver/risk_demo_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   String? initializationError;
+  var initialAdminClaim = false;
   try {
     await FirebaseSetup.initialize();
   } on FirebaseException catch (error) {
@@ -33,10 +39,22 @@ Future<void> main() async {
       exceptionCode: 'unexpected-initialization-error',
     );
   }
+  if (FirebaseSetup.isConfigured) {
+    try {
+      initialAdminClaim =
+          (await FirebaseAuth.instance.currentUser?.getIdTokenResult())
+              ?.claims?['admin'] ==
+          true;
+    } catch (_) {
+      // The admin gate will recheck authorization through the callable.
+    }
+  }
   runApp(
     TrustJugglerApp(
       firebaseConfigured: FirebaseSetup.isConfigured,
+      demoMode: FirebaseSetup.isDemoMode,
       initializationError: initializationError,
+      initialAdminClaim: initialAdminClaim,
     ),
   );
 }
@@ -68,12 +86,20 @@ class TrustJugglerApp extends StatefulWidget {
     this.firebaseConfigured = false,
     this.initializationError,
     this.sessionManager,
+    this.initialAdminClaim = false,
+    this.authGateway,
+    this.driverBackend,
+    this.demoMode = false,
     super.key,
   });
 
   final bool firebaseConfigured;
   final String? initializationError;
   final SessionManager? sessionManager;
+  final bool initialAdminClaim;
+  final AuthGateway? authGateway;
+  final DriverBackendGateway? driverBackend;
+  final bool demoMode;
 
   @override
   State<TrustJugglerApp> createState() => _TrustJugglerAppState();
@@ -106,6 +132,12 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
 
   @override
   Widget build(BuildContext context) {
+    final firebaseEnabled = widget.firebaseConfigured && !widget.demoMode;
+    final currentUser = widget.authGateway != null
+        ? widget.authGateway!.currentUser
+        : firebaseEnabled
+        ? FirebaseAuth.instance.currentUser
+        : null;
     return MaterialApp(
       navigatorKey: _navigatorKey,
       title: 'Trust Juggler',
@@ -118,35 +150,141 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
           brightness: Brightness.dark,
         ),
       ),
-      home: TrustJugglerRoleSelector(
-        onDriverAuth: _openDriverAuth,
-        onOnboarding: () => _openDriverAuth(signUp: true),
-        onFleetAccess: _openFleetAccess,
-        onRiskEngine: _openRiskEngine,
+      home: firebaseEnabled && currentUser != null
+          ? widget.initialAdminClaim
+                ? _adminAccessGate()
+                : _driverAccessGate()
+          : _roleSelector(),
+    );
+  }
+
+  Widget _roleSelector() => TrustJugglerRoleSelector(
+    onDriverAuth: _openDriverAuth,
+    onOnboarding: () => _openDriverAuth(signUp: true),
+    onFleetAccess: _openFleetAccess,
+    onRiskEngine: _openRiskEngine,
+    onPortal: () =>
+        _navigatorKey.currentState?.popUntil((route) => route.isFirst),
+  );
+
+  Widget _driverAccessGate({bool signUp = false}) => AccountAccessGate(
+    firebaseConfigured: widget.firebaseConfigured && !widget.demoMode,
+    initializationError: widget.initializationError,
+    auth: widget.authGateway,
+    backend: widget.driverBackend,
+    onPortalSelected: _returnToPortal,
+    onRiskEngineSelected: _openRiskEngine,
+    startInSignUp: signUp,
+    beforeSignOut: _session.logout,
+    onDriverAccessGranted: _replaceWithDeliveryPool,
+    demoMode: widget.demoMode,
+    onDemoAccessGranted: _replaceWithDemoDeliveryPool,
+    child: widget.firebaseConfigured && !widget.demoMode
+        ? const SizedBox.shrink()
+        : RiderVerificationScreen(sessionManager: _session),
+  );
+
+  Widget _adminAccessGate() => AccountAccessGate(
+    firebaseConfigured: widget.firebaseConfigured && !widget.demoMode,
+    initializationError: widget.initializationError,
+    auth: widget.authGateway,
+    onPortalSelected: _returnToPortal,
+    onRiskEngineSelected: _openRiskEngine,
+    beforeSignOut: _session.logout,
+    adminAccess: true,
+    onAdminAccessGranted: _replaceWithFleetDashboard,
+    child: const SizedBox.shrink(),
+  );
+
+  void _openDriverAuth({bool signUp = false}) {
+    _navigatorKey.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => _driverAccessGate(signUp: signUp),
       ),
     );
   }
 
-  void _openDriverAuth({bool signUp = false}) {
-    _navigatorKey.currentState
-        ?.push(
-          MaterialPageRoute<void>(
-            builder: (_) => AccountAccessGate(
-              firebaseConfigured: widget.firebaseConfigured,
-              initializationError: widget.initializationError,
-              startInSignUp: signUp,
-              beforeSignOut: _session.logout,
-              child: RiderVerificationScreen(sessionManager: _session),
+  void _replaceWithDeliveryPool(User user) {
+    if (!mounted) return;
+    final identity = user.displayName?.trim().isNotEmpty == true
+        ? user.displayName!.trim()
+        : user.email?.trim().isNotEmpty == true
+        ? user.email!.trim()
+        : user.phoneNumber?.trim().isNotEmpty == true
+        ? user.phoneNumber!.trim()
+        : 'Driver · ${user.uid.substring(0, user.uid.length.clamp(0, 8))}';
+    _navigatorKey.currentState?.pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => DriverDeliveryPoolPage(
+          driverIdentity: identity,
+          onSignOut: () async {
+            await _session.logout();
+            final auth = widget.authGateway;
+            if (auth != null) {
+              await auth.signOut();
+            } else {
+              await FirebaseAuth.instance.signOut();
+            }
+          },
+          onSessionExpired: _returnToPortal,
+          watchFirebaseSession: widget.authGateway == null,
+          onOpenBiometricQuickUnlock: () => _navigatorKey.currentState?.push(
+            MaterialPageRoute<void>(
+              builder: (_) => RiderVerificationScreen(sessionManager: _session),
             ),
           ),
-        )
-        .whenComplete(() => unawaited(_session.logout()));
+        ),
+      ),
+    );
+  }
+
+  void _replaceWithDemoDeliveryPool() {
+    if (!mounted) return;
+    _navigatorKey.currentState?.pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => DriverDeliveryPoolPage(
+          driverIdentity: 'virajb2005@gmail.com · 9371736836',
+          demoMode: true,
+          onSignOut: () async => _returnToPortal(),
+          onSessionExpired: _returnToPortal,
+          onOpenBiometricQuickUnlock: () {},
+        ),
+      ),
+    );
+  }
+
+  void _returnToPortal() {
+    _navigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => _roleSelector()),
+      (_) => false,
+    );
   }
 
   void _openFleetAccess() {
     _navigatorKey.currentState?.push(
       MaterialPageRoute<void>(
-        builder: (_) => const FleetAccessUnavailableScreen(),
+        builder: (_) => FleetAccessUnavailableScreen(
+          onAuthenticate: widget.firebaseConfigured && !widget.demoMode
+              ? () {
+                  Navigator.of(_navigatorKey.currentContext!).pop();
+                  _openAdminAuth();
+                }
+              : null,
+        ),
+      ),
+    );
+  }
+
+  void _openAdminAuth() {
+    _navigatorKey.currentState?.push(
+      MaterialPageRoute<void>(builder: (_) => _adminAccessGate()),
+    );
+  }
+
+  void _replaceWithFleetDashboard(User user) {
+    _navigatorKey.currentState?.pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => FleetAuditDashboard(onSessionExpired: _returnToPortal),
       ),
     );
   }
@@ -154,7 +292,16 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
   void _openRiskEngine() {
     _navigatorKey.currentState?.push(
       MaterialPageRoute<void>(
-        builder: (_) => const RiskEngineUnavailableScreen(),
+        builder: (_) => RiskDemoScreen(
+          firebaseConfigured: widget.firebaseConfigured && !widget.demoMode,
+          backend: widget.firebaseConfigured && !widget.demoMode
+              ? FirebaseRiskEventGateway(
+                  functions: FirebaseFunctions.instanceFor(
+                    region: driverFunctionsRegion,
+                  ),
+                )
+              : null,
+        ),
       ),
     );
   }

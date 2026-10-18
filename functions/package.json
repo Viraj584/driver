@@ -1,0 +1,22 @@
+{
+  "name": "trust-juggler-risk-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "node --experimental-strip-types --test",
+    "check": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0",
+    "firebase-functions": "^7.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
