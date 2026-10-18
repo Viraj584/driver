@@ -1,13 +1,25 @@
-# Trust Juggler Rider App
+# Trust Juggler rider prototype
 
-Flutter driver client with a biometric-gated local session and optional Firebase
-account authentication. With no Firebase client identifiers configured, it
-shows a visible Development Mode label and only runs the local prototype.
+Flutter prototype for rider session assurance and fleet risk demonstrations. The repository retains its existing delivery preview, local biometric gate, Firebase Authentication, and secure-storage code. A local deterministic risk simulation is available from the app's Risk Engine entry point.
 
-See [`../docs/phase-1-foundation.md`](../docs/phase-1-foundation.md) for Firebase
-configuration, Android Phone Auth setup, email-link setup, callable functions,
-deployment and security limitations.
+## Run locally
 
-Run `flutter analyze`, `flutter test`, and `flutter build apk --debug` from this
-directory. Firebase's phone and email flows require an actual configured
-project; widget tests use injected auth/backend abstractions.
+```sh
+flutter pub get
+flutter run
+```
+
+Firebase client setup uses `lib/firebase_options.dart` and the platform configuration. A Firebase project may be used for account authentication, but this repository currently has no risk-engine Cloud Functions package or connected Firestore data flow. The risk dashboard is explicitly local demo data; it does not write to Firebase. Never add service account credentials to the app.
+
+## Demo flow
+
+Open **Risk Engine** from the app start screen. Try normal telemetry, device change, low-accuracy GPS jump, unusual speed, and possible handoff. A correlated handoff requests the simulated step-up check. The check is labeled as a demonstration and does not establish identity or liveness.
+
+## Project notes
+
+- [Implementation checklist](docs/IMPLEMENTATION_PLAN.md)
+- [Architecture and trust boundaries](docs/ARCHITECTURE.md)
+- [Risk model](docs/RISK_MODEL.md)
+- [Security limitations](docs/SECURITY.md)
+
+Run `flutter analyze` and `flutter test` for local checks. Firebase emulator and production setup are not part of this local simulation.

@@ -2,12 +2,12 @@
 
 ## Stored data
 
-There is currently no user identity, backend, access token, password, or other
-application secret in this prototype. Consequently, the app stores no session
-credentials. `SecureStorageService` is a narrow, namespaced facility for future
-session-only material; it deliberately rejects arbitrary keys and does not
-persist an authenticated flag or biometric result. Session state and timing
-metadata remain in memory only.
+The Flutter app includes Firebase Authentication support, but the risk demo has
+no connected risk backend. The app stores no session credentials in its own
+secure-storage namespace. `SecureStorageService` is a narrow, namespaced
+facility for future session-only material; it deliberately rejects arbitrary
+keys and does not persist an authenticated flag or biometric result. Session
+state and timing metadata remain in memory only.
 
 On Android, the service uses `flutter_secure_storage` with its current default
 RSA OAEP plus AES GCM encryption implementation and migration backup enabled.
@@ -42,23 +42,17 @@ after logout.
 
 ## Firebase account and backend boundary
 
-When Firebase client identifiers are configured at build time, the app uses
-Firebase Authentication for SMS phone verification and passwordless email-link
-sign-in. Email link is an officially supported Firebase passwordless method;
-it is not a numeric email OTP. Verified phone/email credentials can be linked
-to the currently signed-in UID. If the UID changes while verification is
-pending, the link/sign-in attempt fails closed. The app does not merge Firebase
-accounts automatically. If Firebase is not configured, the app visibly labels
-the experience Development Mode and only uses the local biometric demo. A
-configured Firebase initialization failure fails closed.
+The Flutter project includes Firebase client options and Firebase
+Authentication dependencies. The risk simulator added in this branch is
+local-only and does not call Cloud Functions or Firestore. Client Firebase API
+identifiers are not server credentials; never add service-account keys,
+private keys, or privileged tokens to the app.
 
-After sign-in, authenticated callable functions bootstrap a driver record with
-`registration_pending` and `identity_pending` server-side states. Device
-enrollment requests remain `pending_review`; a server custom admin claim is
-required to approve/revoke replacement records. Firestore client rules deny all
-direct reads and writes. Rate limits and audit events are implemented in the
-callables. App Check, admin web UI and emulator-backed integration tests are
-not yet configured.
+This repository has no Cloud Functions source package, Firestore rules, or
+configured emulator suite. It therefore does not provide server-owned risk
+state, admin claims, rate limits, audit records, or protected fleet actions.
+The local simulation must not be used to make account decisions. Add these
+backend controls before connecting real riders or telemetry.
 
 Ride start remains denied because no provider-backed face/liveness event is
 available. A successful account sign-in or local biometric check does not mark
@@ -72,11 +66,10 @@ a driver approved, prove device integrity or authorize a ride.
   protected UI. It is not a hardware-backed authorization boundary.
 - **Secure persistence** encrypts explicitly permitted local values with
   platform storage facilities. No such sensitive application value exists yet.
-- **Firebase account authentication** verifies a phone number or email-link
-  ownership with Firebase when configured; it does not approve driver
-  registration.
-- **Callable authorization** verifies Firebase Authentication context and
-  server-owned role/status/device records. Ride authorization remains closed.
+- **Firebase account authentication** can verify account credentials when the
+  supplied Firebase project is configured; it does not approve a rider.
+- **Risk simulator** shows synthetic, in-memory state only and makes no remote
+  authorization decision.
 
 Logout and expiry clear the manager's in-memory session timestamps and delete
 all keys in the service's session namespace. Storage errors are shown without
@@ -101,8 +94,9 @@ ride flow.
 
 ## Checks
 
-Run `flutter pub get`, `dart format .`, `flutter analyze`, `flutter test`, and
-`flutter build apk --debug`. Install the debug build on an attached device with:
+For this feature branch, `dart format` completed, `flutter analyze` reported no
+issues, `flutter test` passed, and `flutter build apk --debug` succeeded. Install
+the debug build on an attached device with:
 
 ```sh
 adb install -r build/app/outputs/flutter-apk/app-debug.apk

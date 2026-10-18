@@ -12,6 +12,7 @@ import 'core/security/session_manager.dart';
 import 'features/driver/stitch_screens.dart';
 import 'features/driver/driver_journey_screens.dart';
 import 'features/driver/driver_earnings_screen.dart';
+import 'features/driver/risk_demo_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -153,9 +154,7 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
 
   void _openRiskEngine() {
     _navigatorKey.currentState?.push(
-      MaterialPageRoute<void>(
-        builder: (_) => const RiskEngineUnavailableScreen(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const RiskDemoScreen()),
     );
   }
 }
