@@ -24,7 +24,8 @@ cp .env.example .env
 # Build TypeScript
 npm run build
 
-# Seed an administrator account
+# Seed presentation accounts (Driver & Admin)
+npm run seed-demo
 npm run bootstrap-admin -- admin@trustjuggler.internal SuperAdminPass123!
 
 # Start development server with hot-reload
@@ -32,6 +33,10 @@ npm run dev
 ```
 
 The server listens on **`http://localhost:3000`** by default.
+
+### Presentation Accounts
+- **Demo Driver:** `demo.driver@trustjuggler.internal` / `DemoDriver123!` (approved, bypasses onboarding directly to delivery pool)
+- **Fleet Admin:** `admin@trustjuggler.internal` / `SuperAdminPass123!` (authorized for Fleet Command)
 
 ---
 

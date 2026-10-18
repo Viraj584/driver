@@ -8,7 +8,8 @@
     "build": "tsc && cp src/db/schema.sql dist/db/schema.sql",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "bootstrap-admin": "tsx src/scripts/bootstrap-admin.ts"
+    "bootstrap-admin": "tsx src/scripts/bootstrap-admin.ts",
+    "seed-demo": "tsx src/scripts/seed-demo-user.ts"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
