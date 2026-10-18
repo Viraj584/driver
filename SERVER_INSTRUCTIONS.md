@@ -104,23 +104,36 @@ Tables created:
 ### Auto-Seeded Delivery Pool
 On initial database boot, the system automatically inserts sample delivery orders (`TJ-DEMO-8492`, `TJ-DEMO-8493`, `TJ-DEMO-8494`) if the `deliveries` table is empty.
 
-### Admin Account Bootstrapping
-Run the bootstrap script to create or update an administrator account:
+### Presentation Demo Accounts
 
+Pre-configured presentation accounts are available to demonstrate both the **Rider/Driver Journey** and the **Fleet Command Administrator** workflows:
+
+#### 1. Demo Driver Account (Approved Account)
+Use this account to sign into the **Driver Portal** and immediately access the **Delivery Pool** without onboarding gates:
+
+- **Email:** `demo.driver@trustjuggler.internal`
+- **Password:** `DemoDriver123!`
+- **Phone:** `+15551234567`
+- **Pre-configured State:** `account_status: active`, `registration: approved`, `identity: verified`, `device: enrolled`, `risk_status: ACTIVE`
+
+To re-seed or reset this demo driver account at any time:
+```bash
+npm run seed-demo
+# Or with custom credentials:
+npm run seed-demo -- custom.driver@trustjuggler.internal MyPassword123!
+```
+
+#### 2. Fleet Admin Account
+Use this account to sign into **Fleet Command** and inspect the real-time audit trail and risk decisions:
+
+- **Email:** `admin@trustjuggler.internal`
+- **Password:** `SuperAdminPass123!`
+- **Role:** `admin`
+
+To bootstrap or reset the admin account:
 ```bash
 # Syntax: npm run bootstrap-admin -- <email> <password>
 npm run bootstrap-admin -- admin@trustjuggler.internal SuperAdminPass123!
-```
-
-Output:
-```text
-[Admin Bootstrap] Initializing admin account: admin@trustjuggler.internal
-[Admin Bootstrap] Success: {
-  id: 'admin_...',
-  email: 'admin@trustjuggler.internal',
-  role: 'admin',
-  message: 'Admin account created successfully'
-}
 ```
 
 ---
