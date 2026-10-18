@@ -1,0 +1,208 @@
+<!DOCTYPE html><html lang="en" style=""><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"><meta content="mobile_stack" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-bright": "#faf8ff", "tertiary": "#784b00", "error": "#ba1a1a", "on-secondary-fixed-variant": "#005236", "on-surface-variant": "#434655", "surface-container": "#eaedff", "on-error": "#ffffff", "on-tertiary-fixed": "#2a1700", "inverse-surface": "#283044", "background": "#faf8ff", "on-primary": "#ffffff", "outline": "#737686", "on-tertiary-container": "#ffeedd", "primary": "#004ac6", "surface-container-highest": "#dae2fd", "surface-tint": "#0053db", "secondary-fixed": "#6ffbbe", "tertiary-fixed-dim": "#ffb95f", "secondary": "#006c49", "inverse-on-surface": "#eef0ff", "tertiary-container": "#996100", "on-secondary-fixed": "#002113", "on-tertiary-fixed-variant": "#653e00", "on-primary-fixed": "#00174b", "on-surface": "#131b2e", "error-container": "#ffdad6", "on-secondary": "#ffffff", "primary-fixed-dim": "#b4c5ff", "surface-dim": "#d2d9f4", "primary-fixed": "#dbe1ff", "outline-variant": "#c3c6d7", "on-primary-container": "#eeefff", "primary-container": "#2563eb", "on-secondary-container": "#00714d", "tertiary-fixed": "#ffddb8", "on-background": "#131b2e", "secondary-fixed-dim": "#4edea3", "on-primary-fixed-variant": "#003ea8", "surface-container-lowest": "#ffffff", "secondary-container": "#6cf8bb", "surface": "#faf8ff", "on-error-container": "#93000a", "surface-container-low": "#f2f3ff", "surface-variant": "#dae2fd", "inverse-primary": "#b4c5ff", "surface-container-high": "#e2e7ff", "on-tertiary": "#ffffff" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1rem", "gutter": "1rem", "space-sm": "0.5rem", "space-md": "0.75rem", "space-xs": "0.25rem", "margin": "1rem", "margin-desktop": "2rem", "space-2xl": "2rem", "space-xl": "1.5rem", "gutter-desktop": "1.5rem" }, "fontFamily": { "headline-lg": ["Inter"], "mono-metric": ["Inter"], "label-md": ["Inter"], "body-lg": ["Inter"], "body-md": ["Inter"], "display-lg-mobile": ["Inter"], "headline-md": ["Inter"], "body-sm": ["Inter"], "headline-sm": ["Inter"], "label-sm": ["Inter"], "display-lg": ["Inter"] }, "fontSize": { "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "mono-metric": ["28px", { "lineHeight": "32px", "letterSpacing": "-0.03em", "fontWeight": "700" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "600" }], "body-lg": ["15px", { "lineHeight": "22px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "body-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0", "fontWeight": "400" }], "display-lg-mobile": ["26px", { "lineHeight": "34px", "letterSpacing": "-0.02em", "fontWeight": "700" }], "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0", "fontWeight": "400" }], "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.025em", "fontWeight": "600" }], "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "700" }] } } } };</script></head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] pt-safe"><div class="h-16 px-gutter flex items-center justify-between"><div class="flex items-center gap-space-xs"><button aria-label="Back to Delivery Pool" class="w-11 h-11 flex items-center justify-center text-on-surface hover:bg-surface-container/60 rounded-xl transition-colors" onclick="history.back()"><span class="material-symbols-outlined text-[22px]">arrow_back</span></button><h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight truncate max-w-[190px]">Biometric Order Verification</h1></div><div class="flex items-center gap-space-sm"><button class="h-9 px-space-sm rounded-lg bg-surface-container-low text-on-surface-variant font-label-md text-label-md hover:bg-surface-container transition-colors flex items-center gap-space-xs"></button></div></div></header><main class="flex flex-col relative w-full pt-16 pb-safe bg-surface min-h-screen"><div class="flex flex-col w-full px-gutter pb-space-2xl space-y-space-md">
+<!-- Notification Banner / Micro Status Bar -->
+
+<!-- 1. Top Order Summary Card -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-sm">
+
+<!-- Route Stream -->
+
+<!-- Payout and Trip Metrics Footer -->
+
+</section>
+<!-- 2. Core Modality Selector -->
+<section class="space-y-space-sm">
+
+<!-- Pill Tabs Switcher -->
+<div class="space-y-0.5 pt-space-xs"><h2 class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Confirm Verification</h2></div><div class="grid grid-cols-2 gap-space-xs p-1 rounded-xl bg-surface-container-high" role="tablist">
+<button class="py-space-xs px-space-sm rounded-lg font-headline-sm text-body-sm transition-all duration-200 flex items-center justify-center gap-1.5 bg-surface-container-lowest text-on-surface shadow-sm" id="tabFaceBtn" onclick="switchModality('face')">
+<span class="material-symbols-outlined text-[18px] text-primary">face</span>
+<span class="">Face Scan</span>
+</button>
+<button class="py-space-xs px-space-sm rounded-lg font-body-sm text-body-sm transition-all duration-200 flex items-center justify-center gap-1.5 text-on-surface-variant" id="tabFingerBtn" onclick="switchModality('finger')">
+<span class="material-symbols-outlined text-[18px]">fingerprint</span>
+<span class="">&nbsp;Fingerprint</span>
+</button>
+</div>
+<!-- Method A: Face Scan Card -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-md block" id="faceModalityCard">
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center gap-1.5">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Face Scan &amp; Liveness</h3>
+
+</div>
+
+</div>
+</div>
+<!-- Live Scan Reticle Viewfinder Simulation -->
+<div class="relative w-full h-56 rounded-xl overflow-hidden bg-inverse-surface flex items-center justify-center">
+<img class="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-luminosity" data-alt="High-resolution frontline driver portrait with subtle ambient delivery hub lighting in blue and charcoal tones, focused looking directly forward into biometric authentication lens with clean minimalist enterprise styling" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA7XCKq58-jAdaG4beJw1-DY6Pf0olP5ojtKqZTr7fmOmjzX3Zele8G_K0v5RPcAzhWY5OPTd_9KAZHWL4s-5wA6qmhLD4QOVpSnaxgisyTH42XrbWt_UwSrloMrADNKY3FFcvoh91NzRwb165yinL59oyRiIj7VntZLj4XD0e9gSc3CIE9B2DIWuFatKW4AGyva62o_jhvkPR0h-9DD3PFCr9SN92Y-5E4hp-xz1cDilYuf21z6RX9Aw">
+<!-- Ambient HUD scanning overlay -->
+<div class="absolute inset-0 bg-gradient-to-t from-inverse-surface via-transparent to-inverse-surface/60"></div>
+<!-- Reticle Graphic -->
+<div class="relative z-10 w-40 h-40 flex items-center justify-center">
+<div class="absolute inset-0 border-2 border-primary-fixed-dim/40 rounded-full animate-ping opacity-30"></div>
+<div class="w-36 h-36 rounded-full border-2 border-dashed border-primary-fixed flex items-center justify-center">
+<div class="w-28 h-28 rounded-full border border-primary-fixed/60 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-fixed text-[36px]">face_retouching_natural</span>
+</div>
+</div>
+<!-- Target Corner brackets -->
+<div class="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-secondary-fixed"></div>
+<div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-secondary-fixed"></div>
+<div class="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-secondary-fixed"></div>
+<div class="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-secondary-fixed"></div>
+</div>
+<!-- Dynamic Live Liveness Prompter -->
+<div class="absolute bottom-3 inset-x-3 z-10 py-1.5 px-3 rounded-lg bg-inverse-surface/80 backdrop-blur-md flex items-center justify-between text-inverse-on-surface">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-secondary-fixed-dim text-[16px] animate-spin">sync</span>
+<span class="font-label-sm text-label-sm" id="facePromptLabel">Verifying with Aadhaar CIDR Vault...</span>
+</div>
+<span class="font-label-sm text-label-sm text-secondary-fixed font-semibold">99.4% Ready</span>
+</div>
+</div>
+<!-- KYC Confidence Match Bar -->
+<div class="space-y-1.5 bg-surface-container-low p-space-sm rounded-lg">
+<div class="flex items-center justify-between text-body-sm">
+<span class="font-label-sm text-label-sm text-on-surface-variant">KYC Biometric Confidence</span>
+<span class="font-label-md text-label-md text-secondary font-bold" id="matchPercentage">94.8% Match</span>
+</div>
+<div class="w-full h-2 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full bg-secondary rounded-full transition-all duration-700" style="width: 94.8%;"></div>
+</div>
+<div class="flex items-center justify-between font-label-sm text-label-sm text-on-surface-variant">
+<span class="">Enrolled Master #...8814</span>
+<span class="">Regulatory Target &gt;=85%</span>
+</div>
+</div>
+<!-- Action Trigger for Face -->
+<button class="w-full h-11 rounded-lg bg-primary text-on-primary font-headline-sm text-body-lg flex items-center justify-center gap-space-xs shadow-md hover:bg-primary/90 active:scale-[0.99] transition-all" onclick="simulateVerification('face')">
+<span class="material-symbols-outlined text-[20px]">camera</span>
+<span class="">Scan Face to Confirm &amp; Dispatch</span>
+</button>
+</div>
+<!-- Method B: RD Fingerprint Card (Hidden/Revealed by script) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-md hidden" id="fingerModalityCard">
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center gap-1.5">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Fingerprint Sensor</h3>
+
+</div>
+
+</div>
+</div>
+<!-- Hardware Device Card -->
+
+<!-- Visual Touch Surface -->
+<div class="w-full py-8 rounded-xl bg-surface-container flex flex-col items-center justify-center text-center space-y-space-xs">
+<div class="w-20 h-20 rounded-full bg-primary-fixed flex items-center justify-center shadow-inner">
+<span class="material-symbols-outlined text-primary text-[42px] animate-pulse">fingerprint</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface">Place Thumb on Sensor Prism</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant max-w-[240px]">Hold steady until LED turns steady green for optical extraction</p>
+</div>
+<!-- Action Trigger for Finger -->
+<button class="w-full h-11 rounded-lg bg-primary text-on-primary font-headline-sm text-body-lg flex items-center justify-center gap-space-xs shadow-md hover:bg-primary/90 active:scale-[0.99] transition-all" onclick="simulateVerification('finger')">
+<span class="material-symbols-outlined text-[20px]">fingerprint</span>
+<span class="">Place Finger to Confirm &amp; Dispatch</span>
+</button>
+</div>
+</section>
+<!-- 3. Pre-Dispatch Verification Checklist & Gate Pass Status -->
+<section class="bg-surface-container-lowest rounded-xl p-space-md shadow-sm space-y-space-sm">
+
+
+<div class="grid grid-cols-1 gap-space-xs pt-space-xs">
+<!-- Item 1 -->
+
+<!-- Item 2 -->
+
+<!-- Item 3 -->
+
+</div>
+</section>
+<!-- Success Dispatch Modal / Card (Activated via interaction) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md shadow-md space-y-space-md transition-all duration-300" id="dispatchSuccessCard">
+
+<!-- Mini Route Snapshot -->
+
+<button class="w-full h-11 rounded-lg bg-secondary text-on-secondary font-headline-sm text-body-lg flex items-center justify-center gap-space-xs shadow-md hover:bg-secondary/90 transition-all">
+<span class="material-symbols-outlined text-[20px]">near_me</span>
+<span class="">Start GPS Turn-by-Turn Navigation</span>
+</button>
+</div>
+<!-- Primary One-Click Verification Dispatch CTA -->
+<div class="space-y-space-xs hidden" id="defaultActionWrapper">
+<button class="w-full h-12 rounded-lg bg-primary-container text-on-primary font-headline-sm text-body-lg flex items-center justify-center gap-space-xs shadow-md hover:bg-primary active:scale-[0.99] transition-all" onclick="simulateVerification('face')">
+<span class="material-symbols-outlined text-[22px]">rocket_launch</span>
+<span class="">Verify &amp; Confirm Dispatch</span>
+</button>
+
+</div>
+<!-- 4. Safety, Fallback & Compliance -->
+<section class="space-y-space-sm pt-space-xs">
+<!-- Hub Supervisor Fallback Link -->
+
+<!-- Compliance Footer -->
+<footer class="text-center space-y-1 pt-space-xs">
+
+
+</footer>
+</section>
+</div>
+<script>
+  function switchModality(mode) {
+    const faceCard = document.getElementById('faceModalityCard');
+    const fingerCard = document.getElementById('fingerModalityCard');
+    const faceBtn = document.getElementById('tabFaceBtn');
+    const fingerBtn = document.getElementById('tabFingerBtn');
+
+    if (mode === 'face') {
+      faceCard.classList.remove('hidden');
+      faceCard.classList.add('block');
+      fingerCard.classList.add('hidden');
+      fingerCard.classList.remove('block');
+
+      faceBtn.classList.add('bg-surface-container-lowest', 'text-on-surface', 'shadow-sm');
+      faceBtn.classList.remove('text-on-surface-variant');
+
+      fingerBtn.classList.remove('bg-surface-container-lowest', 'text-on-surface', 'shadow-sm');
+      fingerBtn.classList.add('text-on-surface-variant');
+    } else {
+      fingerCard.classList.remove('hidden');
+      fingerCard.classList.add('block');
+      faceCard.classList.add('hidden');
+      faceCard.classList.remove('block');
+
+      fingerBtn.classList.add('bg-surface-container-lowest', 'text-on-surface', 'shadow-sm');
+      fingerBtn.classList.remove('text-on-surface-variant');
+
+      faceBtn.classList.remove('bg-surface-container-lowest', 'text-on-surface', 'shadow-sm');
+      faceBtn.classList.add('text-on-surface-variant');
+    }
+  }
+
+  function simulateVerification(type) {
+    const prompt = document.getElementById('facePromptLabel');
+    if (prompt) {
+      prompt.textContent = 'Verifying with Aadhaar CIDR Vault...';
+    }
+
+    setTimeout(() => {
+      const defaultActions = document.getElementById('defaultActionWrapper');
+      const successCard = document.getElementById('dispatchSuccessCard');
+      
+      if (defaultActions) defaultActions.classList.add('hidden');
+      if (successCard) {
+        successCard.classList.remove('hidden');
+        successCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 600);
+  }
+</script></main>
+
+</body></html>
