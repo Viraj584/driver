@@ -27,15 +27,23 @@ class ApiClient {
     String? baseUrl,
     http.Client? httpClient,
     this.onSessionExpired,
-  }) : _baseUrl = baseUrl ?? ApiConfig.baseUrl,
+  }) : _configuredBaseUrl = baseUrl,
        _httpClient = httpClient ?? http.Client();
 
-  final String _baseUrl;
+  final String? _configuredBaseUrl;
   final http.Client _httpClient;
   final void Function()? onSessionExpired;
 
+  String? _activeBaseUrl;
   String? _accessToken;
   String? _refreshToken;
+
+  String get baseUrl => _activeBaseUrl ?? _configuredBaseUrl ?? ApiConfig.baseUrl;
+
+  void setCustomBaseUrl(String? url) {
+    _activeBaseUrl = url;
+    ApiConfig.setBaseUrl(url);
+  }
 
   String? get accessToken => _accessToken;
   String? get refreshToken => _refreshToken;
@@ -76,6 +84,21 @@ class ApiClient {
     try {
       return await _send(method, path, queryParams: queryParams, body: body);
     } on ApiException catch (e) {
+      // Auto-fallback across candidate URLs if unable to reach host
+      if ((e.code == 'NETWORK_ERROR' || e.code == 'TIMEOUT') && _configuredBaseUrl == null) {
+        for (final candidate in ApiConfig.candidateUrls) {
+          if (candidate == baseUrl) continue;
+          try {
+            _activeBaseUrl = candidate;
+            final result = await _send(method, path, queryParams: queryParams, body: body);
+            ApiConfig.setBaseUrl(candidate);
+            return result;
+          } catch (_) {
+            // try next candidate
+          }
+        }
+      }
+
       // If 401 and refresh token available, attempt refresh once
       if (e.statusCode == 401 && _refreshToken != null && path != '/api/auth/refresh' && path != '/api/auth/login') {
         final refreshed = await _tryRefreshToken();
@@ -96,7 +119,7 @@ class ApiClient {
     if (currentRefresh == null) return false;
 
     try {
-      final uri = Uri.parse('$_baseUrl/api/auth/refresh');
+      final uri = Uri.parse('$baseUrl/api/auth/refresh');
       final res = await _httpClient.post(
         uri,
         headers: {'Content-Type': 'application/json'},
@@ -122,8 +145,9 @@ class ApiClient {
     Map<String, String>? queryParams,
     dynamic body,
   }) async {
+    final currentBase = baseUrl;
     final normalizedPath = path.startsWith('/') ? path : '/$path';
-    var uri = Uri.parse('$_baseUrl$normalizedPath');
+    var uri = Uri.parse('$currentBase$normalizedPath');
     if (queryParams != null && queryParams.isNotEmpty) {
       uri = uri.replace(queryParameters: queryParams);
     }
@@ -169,7 +193,7 @@ class ApiClient {
     } on SocketException catch (e) {
       throw ApiException(
         code: 'NETWORK_ERROR',
-        message: 'Cannot reach backend at $_baseUrl. Ensure the local server is running. (${e.message})',
+        message: 'Cannot reach backend at $baseUrl. Ensure the local server is running. (${e.message})',
         statusCode: 503,
       );
     } on http.ClientException catch (e) {
