@@ -15,7 +15,8 @@ class StubUser implements User {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class FakeAuthGateway implements AuthGateway {
+class FakeAuthGateway
+    implements AuthGateway, PasswordAuthGateway, GoogleAuthGateway {
   final changes = StreamController<User?>.broadcast();
   User? activeUser;
   Completer<void> sendCodeGate = Completer<void>()..complete();
@@ -30,6 +31,11 @@ class FakeAuthGateway implements AuthGateway {
   Object? verifyCodeError;
   Object? emailLinkError;
   Object? finishEmailLinkError;
+  int passwordSignInCalls = 0;
+  int passwordCreateCalls = 0;
+  int googleSignInCalls = 0;
+  String? passwordEmail;
+  String? passwordValue;
 
   @override
   User? get currentUser => activeUser;
@@ -83,6 +89,28 @@ class FakeAuthGateway implements AuthGateway {
   }
 
   @override
+  Future<void> signInWithEmailPassword(String email, String password) async {
+    passwordSignInCalls++;
+    passwordEmail = email;
+    passwordValue = password;
+    emitSignedIn();
+  }
+
+  @override
+  Future<void> createEmailPasswordAccount(String email, String password) async {
+    passwordCreateCalls++;
+    passwordEmail = email;
+    passwordValue = password;
+    emitSignedIn();
+  }
+
+  @override
+  Future<void> signInWithGoogle() async {
+    googleSignInCalls++;
+    emitSignedIn();
+  }
+
+  @override
   Future<void> signOut() async {
     signOutCalls++;
     emitSignedOut();
@@ -90,6 +118,10 @@ class FakeAuthGateway implements AuthGateway {
 
   Future<void> close() => changes.close();
 }
+
+Finder textFieldWithLabel(String label) => find.byWidgetPredicate(
+  (widget) => widget is TextField && widget.decoration?.labelText == label,
+);
 
 class FakeDriverBackend implements DriverBackendGateway {
   int profileCalls = 0;
@@ -164,6 +196,72 @@ void main() {
     );
     expect(find.text('local biometric screen'), findsOneWidget);
     expect(find.text('FIREBASE ACCOUNT SIGN-IN'), findsNothing);
+  });
+
+  testWidgets('email password sign-in invokes Firebase gateway path', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    final backend = FakeDriverBackend();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          auth: auth,
+          backend: backend,
+          child: const Text('protected app'),
+        ),
+      ),
+    );
+    await tester.enterText(
+      textFieldWithLabel('Email address'),
+      'rider@example.test',
+    );
+    await tester.enterText(
+      textFieldWithLabel('Password'),
+      'correct-horse-battery',
+    );
+    await tester.ensureVisible(find.text('Log in with email'));
+    await tester.tap(find.text('Log in with email'));
+    await tester.pumpAndSettle();
+    expect(auth.passwordSignInCalls, 1);
+    expect(auth.passwordEmail, 'rider@example.test');
+    expect(auth.passwordValue, 'correct-horse-battery');
+    expect(backend.profileCalls, 1);
+    expect(find.text('protected app'), findsOneWidget);
+    await auth.close();
+  });
+
+  testWidgets('email password account creation uses Firebase gateway path', (
+    tester,
+  ) async {
+    final auth = FakeAuthGateway();
+    final backend = FakeDriverBackend();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountAccessGate(
+          firebaseConfigured: true,
+          startInSignUp: true,
+          auth: auth,
+          backend: backend,
+          child: const Text('protected app'),
+        ),
+      ),
+    );
+    await tester.enterText(
+      textFieldWithLabel('Email address'),
+      'rider@example.test',
+    );
+    await tester.enterText(
+      textFieldWithLabel('Password'),
+      'correct-horse-battery',
+    );
+    await tester.ensureVisible(find.text('Create account with email'));
+    await tester.tap(find.text('Create account with email'));
+    await tester.pumpAndSettle();
+    expect(auth.passwordCreateCalls, 1);
+    expect(auth.passwordSignInCalls, 0);
+    await auth.close();
   });
 
   testWidgets('account content waits for auth and server profile state', (
@@ -356,7 +454,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
+    await tester.enterText(
+      textFieldWithLabel('Phone number (+country code)'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Send SMS code'));
     await tester.tap(find.text('Send SMS code'));
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 1);
@@ -382,7 +484,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '9876543210');
+    await tester.enterText(
+      textFieldWithLabel('Phone number (+country code)'),
+      '9876543210',
+    );
+    await tester.ensureVisible(find.text('Send SMS code'));
     await tester.tap(find.text('Send SMS code'));
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 0);
@@ -404,13 +510,18 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
+    await tester.enterText(
+      textFieldWithLabel('Phone number (+country code)'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Send SMS code'));
     await tester.tap(find.text('Send SMS code'));
     await tester.pumpAndSettle();
     expect(find.text('Resend in 30s'), findsOneWidget);
     await tester.pump(const Duration(seconds: 30));
     await tester.pumpAndSettle();
     auth.verificationId = 'replacement-verification-id';
+    await tester.ensureVisible(find.text('Resend SMS code'));
     await tester.tap(find.text('Resend SMS code'));
     await tester.pumpAndSettle();
     expect(auth.sendCodeCalls, 2);
@@ -423,6 +534,7 @@ void main() {
       ),
       ' 001234 ',
     );
+    await tester.ensureVisible(find.text('Verify SMS code'));
     await tester.tap(find.text('Verify SMS code'));
     await tester.pumpAndSettle();
     expect(auth.lastVerificationId, 'replacement-verification-id');
@@ -443,7 +555,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
+    await tester.enterText(
+      textFieldWithLabel('Phone number (+country code)'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Send SMS code'));
     await tester.tap(find.text('Send SMS code'));
     await tester.pump();
     expect(find.text('Please wait…'), findsOneWidget);
@@ -472,7 +588,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
+    await tester.enterText(
+      textFieldWithLabel('Phone number (+country code)'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Send SMS code'));
     await tester.tap(find.text('Send SMS code'));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -483,6 +603,7 @@ void main() {
       ),
       '123456',
     );
+    await tester.ensureVisible(find.text('Verify SMS code'));
     await tester.tap(find.text('Verify SMS code'));
     await tester.pumpAndSettle();
     expect(find.text('That SMS code is invalid.'), findsOneWidget);
@@ -503,7 +624,10 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, 'driver@example.test');
+    await tester.enterText(
+      textFieldWithLabel('Email for sign-in link'),
+      'driver@example.test',
+    );
     await tester.ensureVisible(find.text('Send passwordless email link'));
     await tester.tap(find.text('Send passwordless email link'));
     await tester.pumpAndSettle();
@@ -529,7 +653,10 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, 'driver@example.test');
+    await tester.enterText(
+      textFieldWithLabel('Email for sign-in link'),
+      'driver@example.test',
+    );
     await tester.ensureVisible(find.text('Send passwordless email link'));
     await tester.tap(find.text('Send passwordless email link'));
     await tester.pumpAndSettle();
@@ -559,7 +686,11 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField).first, '+15555550100');
+    await tester.enterText(
+      textFieldWithLabel('Phone number (+country code)'),
+      '+15555550100',
+    );
+    await tester.ensureVisible(find.text('Send SMS code'));
     await tester.tap(find.text('Send SMS code'));
     await tester.pumpAndSettle();
     expect(

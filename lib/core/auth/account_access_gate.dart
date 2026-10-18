@@ -62,6 +62,8 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
   final _phone = TextEditingController();
   final _smsCode = TextEditingController();
   final _email = TextEditingController();
+  final _emailLinkAddress = TextEditingController();
+  final _password = TextEditingController();
   final _emailLink = TextEditingController();
   Timer? _smsTimeoutTimer;
   Timer? _resendCooldownTimer;
@@ -299,18 +301,29 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
     'invalid-verification-code' => 'That SMS code is invalid.',
     'session-expired' || 'expired-action-code' =>
       'That code or sign-in link expired. Request a new one.',
-    'invalid-action-code' ||
-    'invalid-credential' => 'That code or sign-in link is invalid or expired.',
+    'invalid-action-code' => 'That sign-in link is invalid or expired.',
+    'invalid-credential' =>
+      'Email, password, phone code, or Google credential was not recognized.',
     'too-many-requests' =>
       'Too many attempts. Wait before requesting another code.',
     'invalid-phone-number' ||
     'invalid-email' => 'Check the phone number or email address.',
+    'wrong-password' ||
+    'user-not-found' ||
+    'invalid-login-credentials' => 'Email or password was not recognized.',
+    'email-already-in-use' =>
+      'An account already uses this email. Log in instead.',
+    'weak-password' => 'Choose a password with at least 8 characters.',
+    'user-disabled' => 'This account is disabled. Contact support.',
     'network-request-failed' =>
       'Network error. Check your connection and retry.',
     'captcha-check-failed' ||
     'missing-client-identifier' ||
     'invalid-app-credential' => 'App verification could not be completed. Check Google Play services and retry; if it continues, contact support.',
-    'app-not-authorized' || 'operation-not-allowed' => 'Phone sign-in is not enabled for this app configuration. Contact support.',
+    'app-not-authorized' =>
+      'This app is not authorized for the configured Firebase project.',
+    'operation-not-allowed' =>
+      'This sign-in provider is disabled in Firebase Authentication settings.',
     'quota-exceeded' => 'SMS quota has been reached. Wait and retry later, or use a configured test number.',
     'account-exists-with-different-credential' ||
     'credential-already-in-use' ||
@@ -365,6 +378,8 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
     _phone.dispose();
     _smsCode.dispose();
     _email.dispose();
+    _emailLinkAddress.dispose();
+    _password.dispose();
     _emailLink.dispose();
     super.dispose();
   }
@@ -514,7 +529,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                   child: Column(
                     children: [
                       TextField(
-                        controller: _email,
+                        controller: _emailLinkAddress,
                         keyboardType: TextInputType.emailAddress,
                         decoration: const InputDecoration(
                           labelText: 'Email to link',
@@ -524,7 +539,9 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                         onPressed: _busy
                             ? null
                             : () => _perform(() async {
-                                await _auth!.sendEmailLink(_email.text.trim());
+                                await _auth!.sendEmailLink(
+                                  _emailLinkAddress.text.trim(),
+                                );
                                 if (mounted) {
                                   setState(() {
                                     _emailSent = true;
@@ -547,7 +564,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                               ? null
                               : () => _perform(
                                   () => _auth!.finishEmailLink(
-                                    _email.text.trim(),
+                                    _emailLinkAddress.text.trim(),
                                     _emailLink.text.trim(),
                                   ),
                                   operation: 'linkEmailComplete',
@@ -651,11 +668,82 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                 const SizedBox(height: 10),
                 Text(
                   _isSignUp
-                      ? 'Create an account with a verified phone or passwordless email link. Firebase handles account creation. This does not approve driver registration or device trust.'
-                      : 'Continue with a verified phone or passwordless email link. Firebase handles account sign-in. This does not approve driver registration or device trust.',
+                      ? 'Create an account with email and password, verified phone, or a passwordless email link. Sign-in does not approve registration or device trust.'
+                      : 'Sign in with email and password, verified phone, or a passwordless email link. Account sign-in does not approve registration or device trust.',
                   style: TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 24),
+                TextField(
+                  controller: _email,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [
+                    AutofillHints.username,
+                    AutofillHints.email,
+                  ],
+                  decoration: const InputDecoration(labelText: 'Email address'),
+                ),
+                TextField(
+                  controller: _password,
+                  obscureText: true,
+                  autofillHints: [
+                    _isSignUp
+                        ? AutofillHints.newPassword
+                        : AutofillHints.password,
+                  ],
+                  decoration: const InputDecoration(labelText: 'Password'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: _busy
+                      ? null
+                      : () => _perform(() async {
+                          final gateway = _auth;
+                          if (gateway is! PasswordAuthGateway) {
+                            throw StateError(
+                              'Email/password authentication is unavailable.',
+                            );
+                          }
+                          final passwordGateway =
+                              gateway as PasswordAuthGateway;
+                          if (_isSignUp) {
+                            await passwordGateway.createEmailPasswordAccount(
+                              _email.text,
+                              _password.text,
+                            );
+                          } else {
+                            await passwordGateway.signInWithEmailPassword(
+                              _email.text,
+                              _password.text,
+                            );
+                          }
+                        }, operation: 'emailPasswordAuthentication'),
+                  child: Text(
+                    _isSignUp
+                        ? 'Create account with email'
+                        : 'Log in with email',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed:
+                      _busy ||
+                          _auth is! GoogleAuthGateway ||
+                          const String.fromEnvironment(
+                            'GOOGLE_SERVER_CLIENT_ID',
+                          ).isEmpty
+                      ? null
+                      : () => _perform(
+                          () => (_auth as GoogleAuthGateway).signInWithGoogle(),
+                          operation: 'googleAuthentication',
+                        ),
+                  icon: const Icon(Icons.g_mobiledata),
+                  label: Text(
+                    const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID')
+                            .isEmpty
+                        ? 'Google sign-in needs OAuth setup'
+                        : 'Continue with Google',
+                  ),
+                ),
+                const Divider(height: 32, color: Colors.white24),
                 TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
@@ -681,11 +769,6 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                         : 'Resend SMS code',
                   ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.g_mobiledata),
-                  label: const Text('Google sign-in is not configured'),
-                ),
                 if (_verificationId != null) ...[
                   TextField(
                     controller: _smsCode,
@@ -709,15 +792,19 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                 ],
                 const Divider(height: 32, color: Colors.white24),
                 TextField(
-                  controller: _email,
+                  controller: _emailLinkAddress,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Email address'),
+                  decoration: const InputDecoration(
+                    labelText: 'Email for sign-in link',
+                  ),
                 ),
                 OutlinedButton(
                   onPressed: _busy
                       ? null
                       : () => _perform(() async {
-                          await _auth!.sendEmailLink(_email.text.trim());
+                          await _auth!.sendEmailLink(
+                            _emailLinkAddress.text.trim(),
+                          );
                           if (mounted) {
                             setState(() {
                               _emailSent = true;
@@ -740,7 +827,7 @@ class _AccountAccessGateState extends State<AccountAccessGate> {
                         ? null
                         : () => _perform(
                             () => _auth!.finishEmailLink(
-                              _email.text.trim(),
+                              _emailLinkAddress.text.trim(),
                               _emailLink.text.trim(),
                             ),
                             operation: 'emailLinkComplete',

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import 'credential_policy.dart';
 import '../security/security_diagnostics.dart';
@@ -19,8 +20,20 @@ abstract interface class AuthGateway {
   Future<void> signOut();
 }
 
-class FirebaseAuthGateway implements AuthGateway {
+abstract interface class PasswordAuthGateway {
+  Future<void> signInWithEmailPassword(String email, String password);
+  Future<void> createEmailPasswordAccount(String email, String password);
+}
+
+abstract interface class GoogleAuthGateway {
+  Future<void> signInWithGoogle();
+}
+
+class FirebaseAuthGateway
+    implements AuthGateway, PasswordAuthGateway, GoogleAuthGateway {
   FirebaseAuthGateway(this.auth);
+
+  static Future<void>? _googleInitialization;
 
   final FirebaseAuth auth;
   int? _resendToken;
@@ -29,6 +42,55 @@ class FirebaseAuthGateway implements AuthGateway {
       CredentialOperationCoordinator();
   String? _emailLinkOwnerUid;
   bool _emailLinkPending = false;
+
+  @override
+  Future<void> signInWithEmailPassword(String email, String password) async {
+    final normalizedEmail = email.trim();
+    if (!normalizedEmail.contains('@') || password.isEmpty) {
+      throw const FormatException('Enter a valid email and password.');
+    }
+    await auth.signInWithEmailAndPassword(
+      email: normalizedEmail,
+      password: password,
+    );
+  }
+
+  @override
+  Future<void> createEmailPasswordAccount(String email, String password) async {
+    final normalizedEmail = email.trim();
+    if (!normalizedEmail.contains('@') || password.length < 8) {
+      throw const FormatException(
+        'Enter a valid email and a password with at least 8 characters.',
+      );
+    }
+    await auth.createUserWithEmailAndPassword(
+      email: normalizedEmail,
+      password: password,
+    );
+  }
+
+  @override
+  Future<void> signInWithGoogle() async {
+    const serverClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+    if (serverClientId.isEmpty) {
+      throw StateError(
+        'Google sign-in needs GOOGLE_SERVER_CLIENT_ID and Firebase OAuth configuration.',
+      );
+    }
+    _googleInitialization ??= GoogleSignIn.instance.initialize(
+      serverClientId: serverClientId,
+    );
+    await _googleInitialization;
+    final account = await GoogleSignIn.instance.authenticate();
+    final idToken = account.authentication.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw StateError(
+        'Google did not return an ID token. Check the OAuth client configuration.',
+      );
+    }
+    final credential = GoogleAuthProvider.credential(idToken: idToken);
+    await auth.signInWithCredential(credential);
+  }
 
   @override
   User? get currentUser => auth.currentUser;

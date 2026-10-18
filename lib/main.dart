@@ -1,11 +1,14 @@
 import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'core/auth/account_access_gate.dart';
 import 'core/auth/firebase_setup.dart';
+import 'core/auth/driver_backend_gateway.dart';
+import 'core/risk/risk_gateway.dart';
 import 'core/security/secure_storage_service.dart';
 import 'core/security/security_diagnostics.dart';
 import 'core/security/session_manager.dart';
@@ -154,7 +157,18 @@ class _TrustJugglerAppState extends State<TrustJugglerApp> {
 
   void _openRiskEngine() {
     _navigatorKey.currentState?.push(
-      MaterialPageRoute<void>(builder: (_) => const RiskDemoScreen()),
+      MaterialPageRoute<void>(
+        builder: (_) => RiskDemoScreen(
+          firebaseConfigured: widget.firebaseConfigured,
+          backend: widget.firebaseConfigured
+              ? FirebaseRiskEventGateway(
+                  functions: FirebaseFunctions.instanceFor(
+                    region: driverFunctionsRegion,
+                  ),
+                )
+              : null,
+        ),
+      ),
     );
   }
 }

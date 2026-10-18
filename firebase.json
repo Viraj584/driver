@@ -1,1 +1,40 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"trust-juggler-5dac9","appId":"1:373314704749:android:cab0d679a811f385607664","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"trust-juggler-5dac9","configurations":{"android":"1:373314704749:android:cab0d679a811f385607664","ios":"1:373314704749:ios:6bef36c80109d67c607664","macos":"1:373314704749:ios:6bef36c80109d67c607664","web":"1:373314704749:web:581a08876b286f88607664","windows":"1:373314704749:web:360cd8def80edd46607664"}}}}}}
+{
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22",
+    "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "functions": { "port": 5001 },
+    "firestore": { "port": 8080 },
+    "ui": { "enabled": true, "port": 4000 }
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "trust-juggler-5dac9",
+          "appId": "1:373314704749:android:cab0d679a811f385607664",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "trust-juggler-5dac9",
+          "configurations": {
+            "android": "1:373314704749:android:cab0d679a811f385607664",
+            "ios": "1:373314704749:ios:6bef36c80109d67c607664",
+            "macos": "1:373314704749:ios:6bef36c80109d67c607664",
+            "web": "1:373314704749:web:581a08876b286f88607664",
+            "windows": "1:373314704749:web:360cd8def80edd46607664"
+          }
+        }
+      }
+    }
+  }
+}

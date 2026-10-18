@@ -65,6 +65,8 @@ class RiskEngine {
         ? currentStatus
         : score >= 0.60
         ? RiderRiskStatus.verificationPending
+        : currentStatus == RiderRiskStatus.verificationPending && !verified
+        ? RiderRiskStatus.verificationPending
         : RiderRiskStatus.active;
     if (next == RiderRiskStatus.verificationPending) {
       reasons.add('VERIFICATION_REQUIRED');

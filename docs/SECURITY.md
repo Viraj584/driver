@@ -2,12 +2,11 @@
 
 ## Stored data
 
-The Flutter app includes Firebase Authentication support, but the risk demo has
-no connected risk backend. The app stores no session credentials in its own
-secure-storage namespace. `SecureStorageService` is a narrow, namespaced
-facility for future session-only material; it deliberately rejects arbitrary
-keys and does not persist an authenticated flag or biometric result. Session
-state and timing metadata remain in memory only.
+Firebase Auth owns account credentials and tokens. The Flutter app stores no
+Firebase token, password, local authentication flag, or biometric result in its
+own secure-storage namespace. `SecureStorageService` remains a narrow,
+namespaced facility for future session-only material. Local session state and
+timing metadata remain in memory only.
 
 On Android, the service uses `flutter_secure_storage` with its current default
 RSA OAEP plus AES GCM encryption implementation and migration backup enabled.
@@ -42,17 +41,20 @@ after logout.
 
 ## Firebase account and backend boundary
 
-The Flutter project includes Firebase client options and Firebase
-Authentication dependencies. The risk simulator added in this branch is
-local-only and does not call Cloud Functions or Firestore. Client Firebase API
-identifiers are not server credentials; never add service-account keys,
-private keys, or privileged tokens to the app.
+The app supports Firebase email/password, phone OTP, passwordless email link,
+and Google OAuth credential sign-in. Firebase Console providers and OAuth
+clients must be configured; failures stay failures. Google OAuth client IDs
+passed as Dart defines are identifiers, not client secrets. Never put a service
+account, private key, or privileged token in the app.
 
-This repository has no Cloud Functions source package, Firestore rules, or
-configured emulator suite. It therefore does not provide server-owned risk
-state, admin claims, rate limits, audit records, or protected fleet actions.
-The local simulation must not be used to make account decisions. Add these
-backend controls before connecting real riders or telemetry.
+The risk callables require Firebase Auth. They accept a limited set of
+synthetic event labels and compute scores on the server. Firestore client
+reads/writes are denied; trusted callables use Admin SDK transactions to write
+session results, rider state, challenges, and append-only audit records. Admin
+fleet/history and review actions require the server-verified `admin` custom
+claim. A simulated challenge result never clears or restricts the rider; it
+marks review required. The functions and rules are implemented but have not
+been deployed or verified against the configured Firebase project.
 
 Ride start remains denied because no provider-backed face/liveness event is
 available. A successful account sign-in or local biometric check does not mark
@@ -68,8 +70,11 @@ a driver approved, prove device integrity or authorize a ride.
   platform storage facilities. No such sensitive application value exists yet.
 - **Firebase account authentication** can verify account credentials when the
   supplied Firebase project is configured; it does not approve a rider.
-- **Risk simulator** shows synthetic, in-memory state only and makes no remote
-  authorization decision.
+- **Local risk simulator** shows synthetic in-memory state when Firebase is
+  explicitly disabled.
+- **Server risk flow** stores synthetic event labels and server evaluations;
+  it does not verify physical location, device integrity, SIM changes, face
+  identity, or liveness.
 
 Logout and expiry clear the manager's in-memory session timestamps and delete
 all keys in the service's session namespace. Storage errors are shown without
@@ -88,14 +93,14 @@ security assessment or compliance claim. Flutter booleans, timers, and
 timestamps are not hardware-backed security. Secure storage and biometric-
 gated UI do not protect against rooted or compromised devices, malicious
 processes, instrumentation, or operating-system vulnerabilities. Firebase
-configuration and deployment are outstanding. There is no DigiLocker, face
-liveness/matching, device attestation, production admin console, or authorized
-ride flow.
+Console provider setup, OAuth setup, emulator-backed integration testing, and
+deployment remain outstanding. There is no DigiLocker, face liveness/matching,
+device attestation, or authorized ride flow. Simulator event labels are
+untrusted assertions and must not drive production fraud decisions.
 
 ## Checks
 
-For this feature branch, `dart format` completed, `flutter analyze` reported no
-issues, `flutter test` passed, and `flutter build apk --debug` succeeded. Install
+See the current branch's final validation report for command outcomes. Install
 the debug build on an attached device with:
 
 ```sh
