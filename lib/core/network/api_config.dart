@@ -9,20 +9,49 @@ class ApiConfig {
     defaultValue: '',
   );
 
-  /// Resolves the base URL for the backend API.
-  /// Precedence:
-  /// 1. TRUST_JUGGLER_API_BASE_URL from environment / dart-define.
-  /// 2. If running on an Android physical device or emulator:
-  ///    - Android emulator default: http://10.0.2.2:3000
-  /// 3. Otherwise (Desktop, Web, iOS simulator, unit test):
-  ///    - http://127.0.0.1:3000
-  static String get baseUrl {
+  static String? _customBaseUrl;
+
+  /// Sets or clears a dynamic base URL at runtime.
+  static void setBaseUrl(String? url) {
+    if (url != null && url.trim().isNotEmpty) {
+      _customBaseUrl = _normalizeUrl(url);
+    } else {
+      _customBaseUrl = null;
+    }
+  }
+
+  /// Default fallback candidate URLs for local development.
+  static List<String> get candidateUrls {
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
+      return [_customBaseUrl!];
+    }
     if (_envBaseUrl.isNotEmpty) {
-      return _normalizeUrl(_envBaseUrl);
+      return [_normalizeUrl(_envBaseUrl)];
     }
 
     if (!kIsWeb && Platform.isAndroid) {
-      return 'http://10.0.2.2:3000';
+      return [
+        'http://127.0.0.1:3000',
+        'http://10.0.2.2:3000',
+        'http://192.168.1.15:3000',
+      ];
+    }
+
+    return ['http://127.0.0.1:3000'];
+  }
+
+  /// Resolves the base URL for the backend API.
+  /// Precedence:
+  /// 1. Dynamic override set via setBaseUrl().
+  /// 2. TRUST_JUGGLER_API_BASE_URL from environment / dart-define.
+  /// 3. Default local development address (http://127.0.0.1:3000).
+  static String get baseUrl {
+    if (_customBaseUrl != null && _customBaseUrl!.isNotEmpty) {
+      return _customBaseUrl!;
+    }
+
+    if (_envBaseUrl.isNotEmpty) {
+      return _normalizeUrl(_envBaseUrl);
     }
 
     return 'http://127.0.0.1:3000';
@@ -41,3 +70,4 @@ class ApiConfig {
   /// Timeout duration for API operations.
   static const Duration timeout = Duration(seconds: 12);
 }
+
